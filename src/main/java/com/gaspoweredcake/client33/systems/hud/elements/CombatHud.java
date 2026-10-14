@@ -53,7 +53,7 @@ public class CombatHud extends HudElement {
     private static final Color RED = new Color(255, 15, 15);
     private static final Color BLACK = new Color(0, 0, 0, 255);
 
-    public static final HudElementInfo<CombatHud> INFO = new HudElementInfo<>(Hud.GROUP, "combat", "Displays information about your combat target.", CombatHud::new);
+    public static final HudElementInfo<CombatHud> INFO = new HudElementInfo<>(Hud.GROUP, "combat", "Target Info", "Displays health, equipment, and information about your last attacked player.", CombatHud::new);
 
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
     private final SettingGroup sgEnchantments = settings.createGroup("Enchantments");
@@ -238,7 +238,10 @@ public class CombatHud extends HudElement {
             Color secondaryColor = TextHud.getSectionColor(1);
 
             if (isInEditor()) playerEntity = mc.player;
-            else playerEntity = TargetUtils.getPlayerTarget(range.get(), SortPriority.LowestDistance);
+            else {
+                playerEntity = com.gaspoweredcake.client33.utils.combat.DuelTelemetry.target();
+                if (TargetUtils.isBadTarget(playerEntity, range.get())) playerEntity = TargetUtils.getPlayerTarget(range.get(), SortPriority.LowestDistance);
+            }
 
             if (playerEntity == null && !isInEditor()) return;
 

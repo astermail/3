@@ -154,6 +154,7 @@ public abstract class WidgetScreen extends Screen {
         mouseX *= s;
         mouseY *= s;
 
+        root.mouseMoved(mouseX, mouseY, mouseX, mouseY);
         if (debug && click.button() == MOUSE_BUTTON_RIGHT)
             DEBUG_RENDERER.mouseReleased(root, new MouseButtonEvent(mouseX, mouseY, click.buttonInfo()), 0);
 
@@ -180,9 +181,7 @@ public abstract class WidgetScreen extends Screen {
 
         double scale = mc.getWindow().getGuiScale();
         root.mouseMoved(mouseX * scale, mouseY * scale, mouseX * scale, mouseY * scale);
-        root.mouseScrolled(verticalAmount);
-
-        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        return root.mouseScrolled(verticalAmount) || super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
     }
 
     @Override

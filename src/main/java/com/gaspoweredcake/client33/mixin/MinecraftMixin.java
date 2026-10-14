@@ -132,6 +132,8 @@ public abstract class MinecraftMixin implements IMinecraft {
     @Inject(method = "startAttack", at = @At("HEAD"), cancellable = true)
     private void onStartAttack(CallbackInfoReturnable<Boolean> cir) {
         CPSUtils.onAttack();
+        if (Modules.get().isActive(com.gaspoweredcake.client33.systems.modules.player.NoClickDelay.class))
+            ((MinecraftAccessor) this).client33$setMissTime(0);
         if (Client33.EVENT_BUS.post(DoAttackEvent.get()).isCancelled()) cir.cancel();
     }
 
@@ -150,9 +152,10 @@ public abstract class MinecraftMixin implements IMinecraft {
     @Inject(method = "startUseItem", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/item/ItemStack;isItemEnabled(Lnet/minecraft/world/flag/FeatureFlagSet;)Z"))
     private void onStartUseItemHand(CallbackInfo ci, @Local(name = "heldItem") ItemStack heldItem) {
         FastUse fastUse = Modules.get().get(FastUse.class);
-        if (fastUse.isActive()) {
-            rightClickDelay = fastUse.getItemUseCooldown(heldItem);
-        }
+        if (fastUse.isActive()) rightClickDelay = fastUse.getItemUseCooldown(heldItem);
+        var fastPlace = Modules.get().get(com.gaspoweredcake.client33.systems.modules.player.FastPlace.class);
+        if (fastPlace.isActive() && heldItem.getItem() instanceof net.minecraft.world.item.BlockItem)
+            rightClickDelay = Math.min(rightClickDelay, fastPlace.delay.get());
     }
 
     @Inject(method = "startUseItem", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/InteractionHand;values()[Lnet/minecraft/world/InteractionHand;"), cancellable = true)

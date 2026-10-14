@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 
 public class BaritoneSettings implements IPathManager.ISettings {
+    private final BaritoneBuildGuard buildGuard;
     private final Settings settings = new Settings();
 
     private Setting<Boolean> walkOnWater, walkOnLava;
@@ -27,6 +28,11 @@ public class BaritoneSettings implements IPathManager.ISettings {
     private static final Map<String, Double> SETTING_MAX_VALUES = new HashMap<>();
 
     public BaritoneSettings() {
+        this(new BaritoneBuildGuard());
+    }
+
+    public BaritoneSettings(BaritoneBuildGuard buildGuard) {
+        this.buildGuard = buildGuard;
         createWrappers();
     }
 
@@ -57,7 +63,7 @@ public class BaritoneSettings implements IPathManager.ISettings {
 
     @Override
     public void save() {
-        SettingsUtil.save(BaritoneAPI.getSettings());
+        SurvivalBaritone.withOriginals(() -> buildGuard.withOriginals(() -> SettingsUtil.save(BaritoneAPI.getSettings())));
     }
 
     static {

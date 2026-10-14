@@ -36,7 +36,7 @@ import java.util.List;
 
 public class AutoEat extends Module {
     @SuppressWarnings("unchecked")
-    private static final Class<? extends Module>[] AURAS = new Class[]{KillAura.class, CrystalAura.class, AnchorAura.class, BedAura.class};
+    private static final Class<? extends Module>[] AURAS = new Class[]{CrystalAura.class, AnchorAura.class, BedAura.class};
 
     // Settings groups
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
@@ -147,7 +147,7 @@ public class AutoEat extends Module {
             stopEating();
             return;
         }
-        if (Modules.get().get(AutoGap.class).isEating()) return;
+        if (Modules.get().get(AutoGap.class).isEating() || com.gaspoweredcake.client33.utils.player.PotionUse.anyBusy()) return;
         if (mc.gui.screen() != null) {
             stopEating();
             return;
@@ -179,6 +179,7 @@ public class AutoEat extends Module {
         eating = true;
         wasAura.clear();
         if (pauseAuras.get()) {
+            Modules.get().get(KillAura.class).pauseForEating();
             for (Class<? extends Module> klass : AURAS) {
                 Module module = Modules.get().get(klass);
                 if (module.isActive()) {
@@ -249,6 +250,10 @@ public class AutoEat extends Module {
         }
         slot = prevSlot = borrowedFrom = -1;
         displaced = borrowedFood = ItemStack.EMPTY;
+    }
+
+    public boolean pausesKillAura() {
+        return isActive() && eating && pauseAuras.get();
     }
 
     private boolean thresholdReached() {

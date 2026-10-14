@@ -27,6 +27,11 @@ public final class ReconCombatRegression {
         check(clock.tickMillis() == 100, "Out-of-order time cannot reset the model");
         clock.sample(20, 9000);
         check(!clock.ready(9000, 10, 0), "Duplicate/stalled server tick cannot refresh readiness");
+        check(clock.readyWithFallback(9000, 10, 25), "Stale time samples cannot permanently disable attacks with live network traffic");
+        clock.attack(9000);
+        check(!clock.readyWithFallback(9524, 10, 25), "Fallback preserves weapon cooldown and configured margin");
+        check(clock.readyWithFallback(9525, 10, 25), "Fallback resumes at the cooldown boundary");
+        check(!clock.readyWithFallback(10000, Double.NaN, 0), "Fallback rejects invalid weapon timing");
         check(!clock.ready(9000, Double.NaN, 0), "Invalid cooldown cannot pass");
         check(!clock.ready(3050, 10, Double.NaN), "Invalid margin cannot bypass cooldown");
         clock.reset();

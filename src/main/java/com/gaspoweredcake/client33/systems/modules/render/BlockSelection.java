@@ -65,7 +65,7 @@ public class BlockSelection extends Module {
     );
 
     public BlockSelection() {
-        super(Categories.Render, "block-selection", "Modifies how your block selection is rendered.");
+        super(Categories.Render, "block-selection", "Modifies how your block selection is rendered.", "Block Overlay");
     }
 
     @EventHandler

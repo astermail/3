@@ -49,7 +49,7 @@ public abstract class EntityMixin {
 
         Flight flight = Modules.get().get(Flight.class);
         NoSlow noSlow = Modules.get().get(NoSlow.class);
-        if (flight.isActive() || noSlow.fluidDrag()) cir.setReturnValue(false);
+        if (flight.controlsMovement() || noSlow.fluidDrag()) cir.setReturnValue(false);
     }
 
     @Inject(method = {"onAboveBubbleColumn", "onInsideBubbleColumn"}, at = @At("HEAD"))
@@ -67,7 +67,7 @@ public abstract class EntityMixin {
         if ((Object) this != mc.player) return submerged;
 
         if (Modules.get().get(NoSlow.class).fluidDrag()) return false;
-        if (Modules.get().get(Flight.class).isActive()) return false;
+        if (Modules.get().get(Flight.class).controlsMovement()) return false;
         return submerged;
     }
 

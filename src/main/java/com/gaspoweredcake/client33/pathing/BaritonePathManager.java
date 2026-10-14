@@ -15,6 +15,8 @@ import baritone.api.process.PathingCommandType;
 import baritone.api.utils.SettingsUtil;
 import com.gaspoweredcake.client33.Client33;
 import com.gaspoweredcake.client33.events.world.TickEvent;
+import com.gaspoweredcake.client33.events.game.GameLeftEvent;
+import com.gaspoweredcake.client33.systems.config.Config;
 import meteordevelopment.orbit.EventHandler;
 import meteordevelopment.orbit.EventPriority;
 import net.minecraft.core.BlockPos;
@@ -29,6 +31,7 @@ import static com.gaspoweredcake.client33.Client33.mc;
 
 public class BaritonePathManager implements IPathManager {
     private final BaritoneSettings settings;
+    private final BaritoneBuildGuard buildGuard = new BaritoneBuildGuard();
 
     private GoalDirection directionGoal;
     private boolean pathingPaused;
@@ -38,7 +41,7 @@ public class BaritonePathManager implements IPathManager {
         Client33.EVENT_BUS.subscribe(this);
 
         // Create settings
-        settings = new BaritoneSettings();
+        settings = new BaritoneSettings(buildGuard);
 
         // Baritone pathing control
         BaritoneAPI.getProvider().getPrimaryBaritone().getPathingControlManager().registerProcess(new BaritoneProcess());
@@ -67,6 +70,7 @@ public class BaritonePathManager implements IPathManager {
     @Override
     public void stop() {
         BaritoneAPI.getProvider().getPrimaryBaritone().getPathingBehavior().cancelEverything();
+        buildGuard.release();
     }
 
     @Override
@@ -112,6 +116,7 @@ public class BaritonePathManager implements IPathManager {
 
     @EventHandler(priority = EventPriority.HIGHEST)
     private void onTick(TickEvent.Pre event) {
+        updateBuildGuard();
         if (directionGoal == null) return;
 
         if (directionGoal != BaritoneAPI.getProvider().getPrimaryBaritone().getCustomGoalProcess().getGoal()) {
@@ -120,6 +125,18 @@ public class BaritonePathManager implements IPathManager {
         }
 
         directionGoal.tick();
+    }
+
+    public void updateBuildGuard() {
+        buildGuard.update(mc.player != null && mc.level != null && Config.get().saferBaritoneBuilding.get(),
+            BaritoneAPI.getProvider().getPrimaryBaritone().getBuilderProcess().isActive());
+    }
+
+    @EventHandler
+    private void onGameLeft(GameLeftEvent event) {
+        buildGuard.release();
+        pathingPaused = false;
+        directionGoal = null;
     }
 
     private static class GoalDirection implements Goal {

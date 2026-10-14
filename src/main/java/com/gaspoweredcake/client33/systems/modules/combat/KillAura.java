@@ -13,6 +13,8 @@ import com.gaspoweredcake.client33.systems.friends.Friends;
 import com.gaspoweredcake.client33.systems.modules.Categories;
 import com.gaspoweredcake.client33.systems.modules.Module;
 import com.gaspoweredcake.client33.systems.modules.Modules;
+import com.gaspoweredcake.client33.systems.modules.player.AutoEat;
+import com.gaspoweredcake.client33.systems.modules.player.AutoGap;
 import com.gaspoweredcake.client33.utils.entity.EntityAgeTest;
 import com.gaspoweredcake.client33.utils.entity.EntityUtils;
 import com.gaspoweredcake.client33.utils.entity.SortPriority;
@@ -57,7 +59,7 @@ public class KillAura extends Module {
     private final SettingGroup sgTiming = settings.createGroup("Timing");
 
     private final Setting<Boolean> serverCooldown = sgTiming.add(new BoolSetting.Builder()
-        .name("server-cooldown").description("Estimate cooldown from server time packets, sent attacks and weapon speed. Falls back to 20 TPS until sampled; pauses on stale timing.")
+        .name("server-cooldown").description("Estimate cooldown from server time packets, sent attacks and weapon speed. Falls back to vanilla timing when server time samples are unavailable or stale.")
         .defaultValue(true).build());
     private final Setting<Integer> cooldownMargin = sgTiming.add(new IntSetting.Builder()
         .name("cooldown-margin-ms").description("Extra timing margin for network jitter. Custom Delay overrides cooldown timing.")
@@ -301,6 +303,7 @@ public class KillAura extends Module {
     private final TickTimer switchTimer = new TickTimer();
     private final TickTimer attackTimer = new TickTimer();
     private long attackGeneration;
+    private String status = "Ready";
     private boolean wasPathing = false;
     public boolean attacking, swapped;
     public static int previousSlot;
@@ -319,6 +322,7 @@ public class KillAura extends Module {
         switchTimer.reset();
         attackTimer.reset();
         attackGeneration++;
+        status = "Ready";
     }
 
     @Override
@@ -333,30 +337,38 @@ public class KillAura extends Module {
         attackTimer.advance();
         if (mc.player == null || mc.level == null || mc.gameMode == null
             || !mc.player.isAlive() || PlayerUtils.getGameMode() == GameType.SPECTATOR) {
-            stopAttacking();
+            pause("Player unavailable");
+            return;
+        }
+        if (Modules.get().get(AutoEat.class).pausesKillAura() || Modules.get().get(AutoGap.class).pausesKillAura()) {
+            pause("Eating");
+            return;
+        }
+        if (com.gaspoweredcake.client33.utils.player.PotionUse.anyBusy()) {
+            pause("Healing or throwing potion");
             return;
         }
         if (pauseOnUse.get() && (mc.gameMode.isDestroying() || mc.player.isUsingItem())) {
-            stopAttacking();
+            pause("Using item or mining");
             return;
         }
         if (onlyOnClick.get() && !mc.options.keyAttack.isDown()) {
-            stopAttacking();
+            pause("Waiting for click");
             return;
         }
-        if (TickRate.INSTANCE.getTimeSinceLastTick() >= 1f && pauseOnLag.get()) {
-            stopAttacking();
+        if (CombatTelemetry.networkQuietMillis() >= 3000 && pauseOnLag.get()) {
+            pause("No server packets");
             return;
         }
         if (pauseOnCA.get() && Modules.get().get(CrystalAura.class).isActive() && Modules.get().get(CrystalAura.class).kaTimer > 0) {
-            stopAttacking();
+            pause("Crystal Aura placing");
             return;
         }
         if (onlyOnLook.get()) {
             Entity targeted = mc.crosshairPickEntity;
 
             if (targeted == null || !entityCheck(targeted)) {
-                stopAttacking();
+                pause("No target under crosshair");
                 return;
             }
 
@@ -367,7 +379,7 @@ public class KillAura extends Module {
         }
 
         if (targets.isEmpty()) {
-            stopAttacking();
+            pause("No valid targets");
             return;
         }
 
@@ -387,7 +399,7 @@ public class KillAura extends Module {
             }
 
             if (!weaponResult.found()) {
-                stopAttacking();
+                pause("No weapon in hotbar");
                 return;
             }
 
@@ -401,11 +413,12 @@ public class KillAura extends Module {
         }
 
         if (!acceptableWeapon(mc.player.getMainHandItem())) {
-            stopAttacking();
+            pause("Hold a configured weapon");
             return;
         }
 
         attacking = true;
+        status = delayCheck() ? "Attacking" : "Waiting for cooldown";
         if (pauseOnCombat.get() && PathManagers.get().isPathing() && !wasPathing) {
             PathManagers.get().pause();
             wasPathing = true;
@@ -434,6 +447,15 @@ public class KillAura extends Module {
         if (event.packet instanceof ServerboundSetCarriedItemPacket) {
             switchTimer.waitTicks(switchDelay.get());
         }
+    }
+
+    public void pauseForEating() {
+        pause("Eating");
+    }
+
+    private void pause(String reason) {
+        stopAttacking();
+        status = reason;
     }
 
     private void stopAttacking() {
@@ -541,7 +563,7 @@ public class KillAura extends Module {
         if (!switchTimer.ready()) return false;
         if (customDelay.get()) return attackTimer.ready();
         if (mc.player.getAttackStrengthScale(0) < 1) return false;
-        return !serverCooldown.get() || CombatTelemetry.CLOCK.ready(CombatTelemetry.now(),
+        return !serverCooldown.get() || CombatTelemetry.CLOCK.readyWithFallback(CombatTelemetry.now(),
             mc.player.getCurrentItemAttackStrengthDelay(), cooldownMargin.get());
     }
 
@@ -577,8 +599,8 @@ public class KillAura extends Module {
 
     @Override
     public String getInfoString() {
-        if (!targets.isEmpty()) return EntityUtils.getName(getTarget());
-        return null;
+        if (!targets.isEmpty()) return EntityUtils.getName(getTarget()) + " / " + status;
+        return status;
     }
 
     public enum AttackItems {

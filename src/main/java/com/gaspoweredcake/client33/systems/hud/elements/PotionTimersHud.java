@@ -22,7 +22,7 @@ import java.util.List;
 import static com.gaspoweredcake.client33.Client33.mc;
 
 public class PotionTimersHud extends HudElement {
-    public static final HudElementInfo<PotionTimersHud> INFO = new HudElementInfo<>(Hud.GROUP, "potion-timers", "Displays active potion effects with timers.", PotionTimersHud::new);
+    public static final HudElementInfo<PotionTimersHud> INFO = new HudElementInfo<>(Hud.GROUP, "potion-timers", "Potion Status", "Displays active potion effects with timers.", PotionTimersHud::new);
 
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
     private final SettingGroup sgScale = settings.createGroup("Scale");

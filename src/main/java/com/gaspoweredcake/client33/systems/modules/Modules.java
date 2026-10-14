@@ -124,11 +124,14 @@ public class Modules extends System<Modules> {
     @Nullable
     public Module get(String name) {
         for (Module module : moduleInstances.values()) {
-            if (module.name.equalsIgnoreCase(name)) return module;
+            if (normalizeName(module.name).equals(normalizeName(name))) return module;
+            for (String alias : module.aliases) if (normalizeName(alias).equals(normalizeName(name))) return module;
         }
 
         return null;
     }
+
+    public static String normalizeName(String name) { return name.toLowerCase(Locale.ROOT).replace("-", "").replace(" ", "").replace("_", ""); }
 
     public boolean isActive(Class<? extends Module> klass) {
         Module module = get(klass);
@@ -379,6 +382,14 @@ public class Modules extends System<Modules> {
     }
 
     private void initCombat() {
+        add(new AimAssist());
+        add(new AutoHeal());
+        add(new AutoPearl());
+        add(new ThrowPot());
+        add(new ThrowDebuff());
+        add(new HitSelect());
+        add(new WTap());
+        add(new SilentAura());
         add(new AnchorAura());
         add(new AntiAnvil());
         add(new AntiBed());
@@ -417,6 +428,10 @@ public class Modules extends System<Modules> {
         add(new AntiHunger());
         add(new AutoEat());
         add(new AutoClicker());
+        add(new NoClickDelay());
+        add(new Refill());
+        add(new InvCleaner());
+        add(new ArmorSwitch());
         add(new AutoFish());
         add(new AutoGap());
         add(new AutoMend());
@@ -428,6 +443,7 @@ public class Modules extends System<Modules> {
         add(new EXPThrower());
         add(new FakePlayer());
         add(new FastUse());
+        add(new FastPlace());
         add(new GhostHand());
         add(new InstantRebreak());
         add(new LiquidInteract());
@@ -438,6 +454,7 @@ public class Modules extends System<Modules> {
         add(new NoMiningTrace());
         add(new NoRotate());
         add(new NoStatusEffects());
+        add(new AntiDebuff());
         add(new Portals());
         add(new PotionSaver());
         add(new Reach());
@@ -453,6 +470,8 @@ public class Modules extends System<Modules> {
         add(new AutoWalk());
         add(new AutoWasp());
         add(new Blink());
+        add(new FakeLag());
+        add(new BackTrack());
         add(new ClickTP());
         add(new ElytraBoost());
         add(new ElytraFly());
@@ -464,6 +483,7 @@ public class Modules extends System<Modules> {
         add(new Jesus());
         add(new LongJump());
         add(new NoFall());
+        add(new MLG());
         add(new NoSlow());
         add(new Parkour());
         add(new ReverseStep());
@@ -481,6 +501,12 @@ public class Modules extends System<Modules> {
 
     private void initRender() {
         add(new BetterTab());
+        add(new Arrows());
+        add(new ItemESP());
+        add(new SpawnerFinder());
+        add(new PropHunt());
+        add(new HitColor());
+        add(new ClearWater());
         add(new BetterTooltips());
         add(new BlockESP());
         add(new BlockSelection());
@@ -521,6 +547,7 @@ public class Modules extends System<Modules> {
         add(new WaypointsModule());
         add(new WeatherChanger());
         add(new Xray());
+        add(new OreMemory());
         add(new Zoom());
     }
 
@@ -547,6 +574,7 @@ public class Modules extends System<Modules> {
         add(new SpawnProofer());
         add(new Timer());
         add(new VeinMiner());
+        add(new SurvivalBot());
 
         if (BaritoneUtils.IS_AVAILABLE) {
             add(new Excavator());
@@ -556,12 +584,14 @@ public class Modules extends System<Modules> {
 
     private void initMisc() {
         add(new AntiPacketKick());
+        add(new Panic());
         add(new AutoReconnect());
         add(new BetterBeacons());
         add(new BetterChat());
         add(new BookBot());
         add(new DiscordPresence());
         add(new InventoryTweaks());
+        add(new ChestSteal());
         add(new MessageAura());
         add(new Notebot());
         add(new Notifier());

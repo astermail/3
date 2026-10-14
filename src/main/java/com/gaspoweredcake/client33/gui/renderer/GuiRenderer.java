@@ -30,7 +30,7 @@ import static com.gaspoweredcake.client33.Client33.mc;
 import static com.gaspoweredcake.client33.utils.Utils.getWindowHeight;
 import static com.gaspoweredcake.client33.utils.Utils.getWindowWidth;
 
-public class GuiRenderer {
+public class GuiRenderer implements com.gaspoweredcake.client33.gui.utils.RoundedRect.Sink {
     private static final Color WHITE = new Color(255, 255, 255);
 
     private static final TexturePacker TEXTURE_PACKER = new TexturePacker();
@@ -183,15 +183,17 @@ public class GuiRenderer {
             if (tooltip != null && !tooltip.equals(lastTooltip)) {
                 tooltipWidget = theme.tooltip(tooltip);
                 tooltipWidget.init();
+                tooltipWidget.calculateSize();
+                tooltipWidget.calculateWidgetPositions();
             }
 
             double deltaX = -tooltipWidget.x + mouseX + 12;
             double deltaY = -tooltipWidget.y + mouseY + 12;
 
             if (mouseX + 12 + tooltipWidget.width > getWindowWidth())
-                deltaX = -tooltipWidget.x + getWindowWidth() - tooltipWidget.width;
+                deltaX = -tooltipWidget.x + Math.max(0, getWindowWidth() - tooltipWidget.width);
             if (mouseY + 12 + tooltipWidget.height > getWindowHeight())
-                deltaY = -tooltipWidget.y + getWindowHeight() - tooltipWidget.height;
+                deltaY = -tooltipWidget.y + Math.max(0, getWindowHeight() - tooltipWidget.height);
 
             tooltipWidget.move(deltaX, deltaY);
 
@@ -232,6 +234,10 @@ public class GuiRenderer {
 
     public void quad(double x, double y, double width, double height, Color color) {
         quad(x, y, width, height, color, color);
+    }
+
+    public void roundedQuad(double x, double y, double width, double height, double radius, Color color) {
+        com.gaspoweredcake.client33.gui.utils.RoundedRect.draw(this, x, y, width, height, radius, color);
     }
 
     public void quad(WWidget widget, Color color) {

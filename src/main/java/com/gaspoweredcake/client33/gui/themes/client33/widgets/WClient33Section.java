@@ -50,7 +50,7 @@ public class WClient33Section extends WSection {
     protected static class WHeaderTriangle extends WTriangle implements Client33Widget {
         @Override
         protected void onRender(GuiRenderer renderer, double mouseX, double mouseY, double delta) {
-            renderer.rotatedQuad(x, y, width, height, rotation, GuiRenderer.TRIANGLE, theme().textColor.get());
+            renderer.rotatedQuad(x, y, width, height, rotation, GuiRenderer.TRIANGLE, theme().textColor());
         }
     }
 }

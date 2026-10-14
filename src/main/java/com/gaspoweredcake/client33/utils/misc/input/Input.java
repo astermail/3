@@ -39,19 +39,20 @@ public class Input {
     }
 
     public static boolean isPressed(KeyMapping bind) {
-        return isKeyPressed(getKey(bind)) || isButtonPressed(getKey(bind));
+        InputConstants.Key key = ((KeyMappingAccessor) bind).client33$getKey();
+        return key.getType() == InputConstants.Type.MOUSE ? isButtonPressed(key.getValue()) : isKeyPressed(key.getValue());
     }
 
     public static boolean isKeyPressed(int key) {
         if (!GuiKeyEvents.canUseKeys) return false;
 
         if (key == InputConstants.UNKNOWN.getValue()) return false;
-        return key < keys.length && keys[key];
+        return key >= 0 && key < keys.length && keys[key];
     }
 
     public static boolean isButtonPressed(int button) {
         if (button == -1) return false;
-        return button < buttons.length && buttons[button];
+        return button >= 0 && button < buttons.length && buttons[button];
     }
 
     public static void setCursorStyle(CursorStyle style) {

@@ -41,7 +41,7 @@ public class Client33TextHud {
         SPEED = addPreset("Speed", "Speed: #1{round(player.speed, 1)}", 0);
         GAME_MODE = addPreset("Game mode", "Game mode: #1{player.gamemode}", 0);
         DURABILITY = addPreset("Durability", "Durability: #1{player.hand_or_offhand.durability}");
-        POSITION = addPreset("Position", "Pos: #1{floor(camera.pos.x)}, {floor(camera.pos.y)}, {floor(camera.pos.z)}", 0);
+        POSITION = addPreset("Coords / Position", "Pos: #1{floor(camera.pos.x)}, {floor(camera.pos.y)}, {floor(camera.pos.z)}", 0);
         OPPOSITE_POSITION = addPreset("Opposite Position", "{player.opposite_dimension != \"End\" ? player.opposite_dimension + \":\" : \"\"} #1{player.opposite_dimension != \"End\" ? \"\" + floor(camera.opposite_dim_pos.x) + \", \" + floor(camera.opposite_dim_pos.y) + \", \" + floor(camera.opposite_dim_pos.z) : \"\"}", 0);
         LOOKING_AT = addPreset("Looking at", "Looking at: #1{crosshair_target.value}", 0);
         LOOKING_AT_WITH_POSITION = addPreset("Looking at with position", "Looking at: #1{crosshair_target.value} {crosshair_target.type != \"miss\" ? \"(\" + \"\" + floor(crosshair_target.value.pos.x) + \", \" + floor(crosshair_target.value.pos.y) + \", \" + floor(crosshair_target.value.pos.z) + \")\" : \"\"}", 0);
@@ -50,7 +50,7 @@ public class Client33TextHud {
         WEATHER = addPreset("Weather", "Weather: #1{server.weather}", 0);
         BIOME = addPreset("Biome", "Biome: #1{player.biome}", 0);
         WORLD_TIME = addPreset("World time", "Time: #1{server.time}");
-        REAL_TIME = addPreset("Real time", "Time: #1{time}");
+        REAL_TIME = addPreset("Clock / Real time", "Time: #1{time}");
         ROTATION = addPreset("Rotation", "{camera.direction} #1({round(camera.yaw, 1)}, {round(camera.pitch, 1)})", 0);
         MODULE_ENABLED = addPreset("Module enabled", "Kill Aura: {client33.is_module_active(\"kill-aura\") ? #2 \"ON\" : #3 \"OFF\"}", 0);
         MODULE_ENABLED_WITH_INFO = addPreset("Module enabled with info", "Kill Aura: {client33.is_module_active(\"kill-aura\") ? #2 \"ON\" : #3 \"OFF\"} #1{client33.get_module_info(\"kill-aura\")}", 0);

@@ -84,7 +84,7 @@ public class AutoReplenish extends Module {
     private int tickDelayLeft;
 
     public AutoReplenish() {
-        super(Categories.Player, "auto-replenish", "Automatically refills items in your hotbar, main hand, or offhand.");
+        super(Categories.Player, "auto-replenish", "Automatically refills items in your hotbar, main hand, or offhand.", "AutoReplenish");
     }
 
     @Override

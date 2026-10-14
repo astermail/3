@@ -171,7 +171,14 @@ public abstract class WWidget implements BaseWidget {
     }
 
     public boolean isOver(double x, double y) {
-        return x >= this.x && x <= this.x + width && y >= this.y && y <= this.y + height;
+        if (!visible || x < this.x || x > this.x + width || y < this.y || y > this.y + height) return false;
+        // Partially clipped rows must not respond through the edge of a scrolling panel.
+        for (WWidget ancestor = parent; ancestor != null; ancestor = ancestor.parent) {
+            if (!ancestor.visible) return false;
+            if (ancestor instanceof WView && (x < ancestor.x || x > ancestor.x + ancestor.width
+                || y < ancestor.y || y > ancestor.y + ancestor.height)) return false;
+        }
+        return true;
     }
 
     public boolean isFocused() {

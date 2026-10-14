@@ -121,7 +121,7 @@ public class Blur extends Module {
     private float previousOffset = -1;
 
     public Blur() {
-        super(Categories.Render, "blur", "Blurs background when in GUI screens.");
+        super(Categories.Render, "blur", "Blurs background when in GUI screens.", "Inventory Blur");
 
         // Initialize fbos for the first time
         for (int i = 0; i < fbos.length; i++) {

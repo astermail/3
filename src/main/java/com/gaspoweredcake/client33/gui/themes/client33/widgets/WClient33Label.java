@@ -17,7 +17,7 @@ public class WClient33Label extends WLabel implements Client33Widget {
     @Override
     protected void onRender(GuiRenderer renderer, double mouseX, double mouseY, double delta) {
         if (!text.isEmpty()) {
-            renderer.text(text, x, y, color != null ? color : (title ? theme().titleTextColor.get() : theme().textColor.get()), title);
+            renderer.text(text, x, y, color != null ? color : (title ? theme().titleTextColor.get() : theme().textColor()), title);
         }
     }
 }

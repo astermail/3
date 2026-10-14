@@ -15,24 +15,31 @@ public abstract class WPressable extends WWidget {
     public Runnable action;
 
     protected boolean pressed;
+    private int pressedButton = -1;
 
     @Override
     public boolean onMouseClicked(MouseButtonEvent click, boolean doubled) {
-        if (mouseOver && (click.button() == MOUSE_BUTTON_LEFT || click.button() == MOUSE_BUTTON_RIGHT))
-            pressed = true;
-        return pressed;
+        if (!mouseOver || (click.button() != MOUSE_BUTTON_LEFT && click.button() != MOUSE_BUTTON_RIGHT)) return false;
+        pressed = true;
+        pressedButton = click.button();
+        return true;
     }
 
     @Override
     public boolean onMouseReleased(MouseButtonEvent click) {
-        if (pressed) {
+        if (!pressed || click.button() != pressedButton) return false;
+        pressed = false;
+        pressedButton = -1;
+        if (mouseOver) {
             onPressed(click.button());
             if (action != null) action.run();
-
-            pressed = false;
         }
+        return true;
+    }
 
-        return false;
+    @Override
+    public boolean isFocused() {
+        return pressed || super.isFocused();
     }
 
     protected void onPressed(int button) {

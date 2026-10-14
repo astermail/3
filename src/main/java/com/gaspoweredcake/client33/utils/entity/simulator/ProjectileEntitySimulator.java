@@ -142,13 +142,6 @@ public class ProjectileEntitySimulator {
     }
 
     public void set(Entity user, double angleOffset, boolean accurate, float tickDelta, MotionData data) {
-        // I lost my mind for an hour trying to figure out why arrows and tridents were spawning lower than expected,
-        // and it was because no slow air strict was silently causing the player to crouch AAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-        Pose pose = user.getPose();
-        if (user == mc.player && (Modules.get().get(NoSlow.class).airStrict() || Modules.get().get(Sneak.class).doPacket()))
-            pose = Pose.CROUCHING;
-        Utils.set(pos, user, tickDelta).add(0, user.getEyeHeight(pose) - 0.1f, 0);
-
         double yaw;
         double pitch;
 
@@ -160,6 +153,21 @@ public class ProjectileEntitySimulator {
             pitch = user.getXRot(tickDelta);
         }
 
+        setThrowData(user, angleOffset, accurate, tickDelta, data, yaw, pitch);
+    }
+
+    /** Explicit aim for automation; never mutates the player's camera or the rotation queue. */
+    public boolean setThrow(Entity user, ItemStack stack, double yaw, double pitch) {
+        MotionData data = stack.is(Items.ENDER_PEARL) ? ENDER_PEARL : stack.is(Items.SPLASH_POTION) ? SPLASH_POTION : null;
+        if (data == null) return false;
+        setThrowData(user, 0, true, 1, data, yaw, pitch);
+        return true;
+    }
+
+    private void setThrowData(Entity user, double angleOffset, boolean accurate, float tickDelta, MotionData data, double yaw, double pitch) {
+        Pose pose = user.getPose();
+        if (user == mc.player && (Modules.get().get(NoSlow.class).airStrict() || Modules.get().get(Sneak.class).doPacket())) pose = Pose.CROUCHING;
+        Utils.set(pos, user, tickDelta).add(0, user.getEyeHeight(pose) - 0.1f, 0);
         double x, y, z;
 
         if (angleOffset == 0) {

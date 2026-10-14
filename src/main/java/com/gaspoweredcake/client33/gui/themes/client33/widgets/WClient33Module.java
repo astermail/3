@@ -74,16 +74,16 @@ public class WClient33Module extends WPressable implements Client33Widget {
         animationProgress2 = Mth.clamp(animationProgress2, 0, 1);
 
         if (animationProgress1 > 0) {
-            renderer.quad(x, y, width * animationProgress1, height, theme.moduleBackground.get());
+            renderer.quad(x, y, width * animationProgress1, height, theme.moduleSurface());
         }
         if (animationProgress2 > 0) {
-            renderer.quad(x, y + height * (1 - animationProgress2), theme.scale(2), height * animationProgress2, theme.accentColor.get());
+            renderer.quad(x, y + height * (1 - animationProgress2), theme.scale(2), height * animationProgress2, theme.accent());
         }
         renderer.quad(x, y + height - theme.scale(1), width, theme.scale(1), theme.separatorEdges.get());
         String status = module.isActive() ? "ON" : "OFF";
         double statusWidth = theme.textWidth("OFF");
         renderer.text(status, x + width - pad - statusWidth, y + pad,
-            module.isActive() ? theme.accentColor.get() : theme.textSecondaryColor.get(), false);
+            module.isActive() ? theme.accent() : theme.textSecondaryColor(), false);
 
         double x = this.x + pad;
         double w = width - pad * 3 - statusWidth;
@@ -95,6 +95,6 @@ public class WClient33Module extends WPressable implements Client33Widget {
             x += w - titleWidth;
         }
 
-        renderer.text(title, x, y + pad, module.isActive() ? theme.titleTextColor.get() : theme.textColor.get(), false);
+        renderer.text(title, x, y + pad, module.isActive() ? theme.titleTextColor.get() : theme.textColor(), false);
     }
 }

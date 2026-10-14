@@ -42,6 +42,14 @@ public final class ServerTickEstimator {
         if (!Double.isFinite(ticks) || ticks < 0 || !Double.isFinite(margin)) return Long.MAX_VALUE;
         return (long) Math.ceil(ticks * millisPerTick + Math.max(0, margin) + jitter);
     }
+    /** Vanilla-rate fallback for attacks when time packets stop but other server packets still arrive. */
+    public synchronized boolean readyWithFallback(long now, double ticks, double margin) {
+        if (!stale(now)) return ready(now, ticks, margin);
+        if (!Double.isFinite(ticks) || ticks < 0 || !Double.isFinite(margin)) return false;
+        long delay = (long) Math.ceil(ticks * 50 + Math.max(0, margin));
+        return lastAttack < 0 || now - lastAttack >= delay;
+    }
+
     public synchronized boolean ready(long now, double ticks, double margin) {
         long delay = delayMillis(ticks, margin);
         return delay != Long.MAX_VALUE && !stale(now) && (lastAttack < 0 || now - lastAttack >= delay);

@@ -260,10 +260,10 @@ publishing {
 
 }
 
-// Pure module math can be checked without launching a Minecraft client.
+// Module logic and registry-backed material counts can be checked without launching a Minecraft client.
 val regression = sourceSets.create("regression") {
-    compileClasspath += sourceSets.main.get().output
-    runtimeClasspath += sourceSets.main.get().output + configurations.runtimeClasspath.get()
+    compileClasspath += sourceSets.main.get().output + sourceSets.main.get().compileClasspath
+    runtimeClasspath += sourceSets.main.get().output + sourceSets.main.get().runtimeClasspath
 }
 val moduleLogicRegression = tasks.register<JavaExec>("moduleLogicRegression") {
     group = "verification"

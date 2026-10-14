@@ -19,7 +19,7 @@ public abstract class WTooltip extends WContainer implements WRoot {
 
     @Override
     public void init() {
-        add(theme.label(text)).pad(4);
+        add(theme.label(text, Math.max(40, Math.min(420, com.gaspoweredcake.client33.utils.Utils.getWindowWidth() / theme.scale(1) - 24)))).pad(6);
     }
 
     @Override

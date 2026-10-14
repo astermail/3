@@ -68,6 +68,11 @@ public abstract class LivingEntityRendererMixin<T extends LivingEntity, S extend
 
     @WrapWithCondition(method = "submit(Lnet/minecraft/client/renderer/entity/state/LivingEntityRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/level/CameraRenderState;)V", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/SubmitNodeCollector;submitModel(Lnet/minecraft/client/model/Model;Ljava/lang/Object;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/rendertype/RenderType;IIILnet/minecraft/client/renderer/texture/TextureAtlasSprite;ILnet/minecraft/client/renderer/feature/ModelFeatureRenderer$CrumblingOverlay;)V"))
     private <TState> boolean render$render(SubmitNodeCollector instance, Model<? super TState> model, TState state, PoseStack matrixStack, RenderType renderLayer, int light, int overlay, int mixColor, TextureAtlasSprite sprite, int outlineColor, ModelFeatureRenderer.CrumblingOverlay crumblingOverlayCommand) {
+        var hitColor = Modules.get().get(com.gaspoweredcake.client33.systems.modules.render.HitColor.class);
+        if (hitColor.isActive() && ((IEntityRenderState) state).client33$getEntity() instanceof LivingEntity living && living.hurtTime > 0) {
+            instance.submitModel(model, state, matrixStack, renderLayer, light, net.minecraft.client.renderer.texture.OverlayTexture.NO_OVERLAY, hitColor.color.get().getPacked(), sprite, outlineColor, crumblingOverlayCommand);
+            return false;
+        }
         if (!chams.isActive() || !chams.players.get() || !(((IEntityRenderState) state).client33$getEntity() instanceof Player player))
             return true;
         if (chams.ignoreSelf.get() && player == mc.player) return true;

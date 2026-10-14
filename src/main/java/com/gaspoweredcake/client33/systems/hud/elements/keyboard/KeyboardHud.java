@@ -48,7 +48,7 @@ import java.util.Locale;
 import static com.gaspoweredcake.client33.Client33.mc;
 
 public class KeyboardHud extends HudElement {
-    public static final HudElementInfo<KeyboardHud> INFO = new HudElementInfo<>(Hud.GROUP, "keyboard", "Displays pressed keys.", KeyboardHud::new);
+    public static final HudElementInfo<KeyboardHud> INFO = new HudElementInfo<>(Hud.GROUP, "keyboard", "KeyStrokes", "Displays pressed keys, mouse buttons, and optional CPS.", KeyboardHud::new);
 
     public enum Alignment {
         Left,
@@ -104,7 +104,7 @@ public class KeyboardHud extends HudElement {
     );
 
     private final Setting<Boolean> showCps = sgGeneral.add(new BoolSetting.Builder()
-        .name("Show CPS")
+        .name("show-cps")
         .description("Shows clicks per second on keys.")
         .defaultValue(false)
         .visible(() -> preset.get() != Preset.Custom)

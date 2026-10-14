@@ -36,6 +36,8 @@ import com.mojang.blaze3d.platform.MacosUtil;
 import static com.gaspoweredcake.client33.Client33.mc;
 
 public class Client33GuiTheme extends GuiTheme {
+    private static final Color READABLE_TEXT = new Color(240, 242, 248);
+    private static final Color READABLE_SECONDARY = new Color(190, 194, 207);
     private static final Color SCREEN_TINT = new Color(7, 7, 10, 200);
     private static final String SCREEN_MARK = "33";
 
@@ -59,7 +61,7 @@ public class Client33GuiTheme extends GuiTheme {
         .sliderRange(0.75, 4)
         .onSliderRelease()
         .onChanged(aDouble -> {
-            if (mc.gui.screen() instanceof WidgetScreen) ((WidgetScreen) mc.gui.screen()).invalidate();
+            if (mc.gui.screen() instanceof WidgetScreen) ((WidgetScreen) mc.gui.screen()).reload();
         })
         .build()
     );
@@ -94,6 +96,39 @@ public class Client33GuiTheme extends GuiTheme {
         .defaultValue(true)
         .build()
     );
+
+    public final Setting<Boolean> readableText = sgGeneral.add(new BoolSetting.Builder()
+        .name("high-contrast-text")
+        .description("Use bright, opaque text and placeholders. Disable to use custom text colors.")
+        .defaultValue(true)
+        .onChanged(value -> {
+            if (mc.gui.screen() instanceof WidgetScreen screen) screen.reload();
+        })
+        .build()
+    );
+
+    public enum Appearance { Euphoric, Custom }
+    public final Setting<Appearance> appearance = sgGeneral.add(new EnumSetting.Builder<Appearance>()
+        .name("appearance").description("Euphoric cyan/violet surfaces, or your custom colors.").defaultValue(Appearance.Euphoric).build());
+    public final Setting<Boolean> animatedAtmosphere = sgGeneral.add(new BoolSetting.Builder()
+        .name("animated-atmosphere").description("Slowly moving aurora behind panels. Disable for a still background.").defaultValue(true).build());
+    public final Setting<Double> atmosphereIntensity = sgGeneral.add(new DoubleSetting.Builder()
+        .name("atmosphere-intensity").description("Brightness of decorative lighting; zero removes the lighting.").defaultValue(0.65).range(0, 1).build());
+    private double atmosphereClock;
+    public boolean euphoric() { return appearance.get() == Appearance.Euphoric; }
+    public Color accent() { return euphoric() ? com.gaspoweredcake.client33.utils.render.EuphoricPalette.sample(0, 255) : accentColor.get(); }
+    public Color surface() { return surface(false, false); }
+    public Color surface(boolean pressed, boolean hovered) { return surface(pressed, hovered, false); }
+    public Color surface(boolean pressed, boolean hovered, boolean bypassDisableHoverColor) {
+        if (!euphoric()) return backgroundColor.get(pressed, hovered, bypassDisableHoverColor);
+        return pressed ? new Color(50, 42, 77, 255) : hovered && (bypassDisableHoverColor || !disableHoverColor)
+            ? new Color(31, 34, 57, 252) : new Color(15, 19, 32, 250);
+    }
+    public Color outline(boolean pressed, boolean hovered) {
+        if (!euphoric()) return outlineColor.get(pressed, hovered);
+        return pressed || hovered && !disableHoverColor ? accent() : new Color(62, 64, 92);
+    }
+    public Color moduleSurface() { return euphoric() ? new Color(34, 33, 61, 245) : moduleBackground.get(); }
 
     // Colors
 
@@ -186,10 +221,21 @@ public class Client33GuiTheme extends GuiTheme {
     public void renderBackground(GuiRenderer renderer, double width, double height) {
         renderer.quad(0, 0, width, height, SCREEN_TINT);
 
-        double line = scale(2);
-        renderer.quad(0, 0, width, line, accentColor.get());
+        if (euphoric() && atmosphereIntensity.get() > 0) {
+            if (animatedAtmosphere.get()) atmosphereClock += Math.min(com.gaspoweredcake.client33.utils.Utils.frameTime, 0.1);
+            double phase = atmosphereClock * 0.09;
+            int segments = 24;
+            for (int i = 0; i < segments; i++) {
+                double px = width * i / segments, piece = width / segments + 1;
+                double py = height * (0.34 + Math.sin(i * 0.16 + phase) * 0.1);
+                Color glow = com.gaspoweredcake.client33.utils.render.EuphoricPalette.sample(i / (double) segments + phase * 0.05, (int) (30 * atmosphereIntensity.get()));
+                Color clear = new Color(glow).a(0);
+                renderer.quad(px, py - height * 0.12, piece, height * 0.28, clear, clear, glow, glow);
+                renderer.quad(px, py + height * 0.16, piece, height * 0.34, glow, glow, clear, clear);
+            }
+        }
 
-        renderer.text(SCREEN_MARK, width - textWidth(SCREEN_MARK) - scale(36), height - textHeight() - scale(9), textSecondaryColor.get(), false);
+        renderer.text(SCREEN_MARK, width - textWidth(SCREEN_MARK) - scale(36), height - textHeight() - scale(9), textSecondaryColor(), false);
     }
 
     private Setting<SettingColor> color(SettingGroup group, String name, String description, SettingColor color) {
@@ -320,12 +366,16 @@ public class Client33GuiTheme extends GuiTheme {
 
     @Override
     public Color textColor() {
-        return textColor.get();
+        return readableText.get() ? READABLE_TEXT : textColor.get();
     }
 
     @Override
     public Color textSecondaryColor() {
-        return textSecondaryColor.get();
+        return readableText.get() ? READABLE_SECONDARY : textSecondaryColor.get();
+    }
+
+    public Color placeholderColor() {
+        return readableText.get() ? READABLE_SECONDARY : placeholderColor.get();
     }
 
     //     Starscript

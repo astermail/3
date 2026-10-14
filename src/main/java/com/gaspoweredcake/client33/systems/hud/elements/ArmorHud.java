@@ -20,7 +20,7 @@ import net.minecraft.world.item.Items;
 import static com.gaspoweredcake.client33.Client33.mc;
 
 public class ArmorHud extends HudElement {
-    public static final HudElementInfo<ArmorHud> INFO = new HudElementInfo<>(Hud.GROUP, "armor", "Displays your armor.", ArmorHud::new);
+    public static final HudElementInfo<ArmorHud> INFO = new HudElementInfo<>(Hud.GROUP, "armor", "Armor Status", "Displays your armor.", ArmorHud::new);
 
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
     private final SettingGroup sgDurability = settings.createGroup("Durability");

@@ -23,6 +23,7 @@ public class Tabs {
     @PreInit(dependencies = PathManagers.class)
     public static void init() {
         add(new ModulesTab());
+        if (com.gaspoweredcake.client33.pathing.BaritoneUtils.IS_AVAILABLE) add(new SchematicsTab());
         add(new ConfigTab());
         add(new GuiTab());
         add(new HudTab());
