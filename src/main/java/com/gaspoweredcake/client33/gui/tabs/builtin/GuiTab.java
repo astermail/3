@@ -72,7 +72,28 @@ public class GuiTab extends Tab {
             pasteButton.action = this::fromClipboard;
             pasteButton.tooltip = "Paste config";
 
-            add(theme.settings(theme.settings)).expandX();
+            if (theme instanceof com.gaspoweredcake.client33.gui.themes.client33.Client33GuiTheme client) {
+                var style = com.gaspoweredcake.client33.Client33.FOLDER.toPath().resolve("theme.json");
+                var status = add(theme.label("Editable theme: " + style, 560)).expandX().widget();
+                var files = add(theme.horizontalList()).expandX().widget();
+                files.add(theme.button("Export JSON")).widget().action = () -> {
+                    try { com.gaspoweredcake.client33.gui.runtime.ThemeStyle.export(style, client); status.set("Exported " + style); }
+                    catch (Exception failure) { status.set("Export failed: " + failure.getMessage()); }
+                };
+                files.add(theme.button("Load JSON")).widget().action = () -> {
+                    try {
+                        String json;
+                        try (var stream = java.nio.file.Files.newInputStream(style)) {
+                            byte[] bytes = stream.readNBytes(65537);
+                            if (bytes.length > 65536) throw new IllegalArgumentException("Style file exceeds 64 KiB.");
+                            json = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+                        }
+                        com.gaspoweredcake.client33.gui.runtime.ThemeStyle.parse(json).apply(client);
+                        taskAfterRender = this::reload;
+                    } catch (Exception failure) { status.set("Style rejected: " + failure.getMessage()); }
+                };
+            }
+            add(new com.gaspoweredcake.client33.gui.widgets.containers.WSettingsWorkspace(theme.settings, "")).expandX();
         }
 
         @Override

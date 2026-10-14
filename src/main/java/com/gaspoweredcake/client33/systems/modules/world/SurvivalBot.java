@@ -50,6 +50,9 @@ public class SurvivalBot extends Module {
     private Object level, player;
     private BlockPos home, table, furnace, chest, pendingBlock, wanderGoal;
     private Block pendingType;
+    private BlockPos placement;
+    private Block placementType;
+    private long placementDeadline;
     private long openUntil, lastProgress, lastAction, generation, lastHunt;
     private int signature, ticks, wander;
     private boolean running, eating;
@@ -57,7 +60,7 @@ public class SurvivalBot extends Module {
     private final Map<Item, Integer> startingItems = new HashMap<>();
     private String status = "Click Start in settings";
     private WLabel statusLabel;
-    public SurvivalBot() { super(Categories.World, "survival-bot", "Baritone progression from wood to a diamond kit and an early survival camp. Start explicitly in settings.", "Auto Mine", "Diamond Kit", "Auto Progression"); }
+    public SurvivalBot() { super(Categories.World, "survival-bot", "Baritone progression from wood to a diamond kit and an early survival camp. Start explicitly in settings.", "Auto Mine", "Diamond Kit", "Auto Progression", "Survival Mode", "Baritone Survival"); }
     @Override public WWidget getWidget(GuiTheme theme) {
         var list = theme.verticalList();
         list.add(theme.label("Start here on solid Overworld ground. This becomes your camp.", 390)).expandX();
@@ -93,7 +96,7 @@ public class SurvivalBot extends Module {
         if (level != mc.level || home == null) { home = mc.player.blockPosition(); table = furnace = chest = null; }
         level = mc.level; player = mc.player; baritone = candidate; baritone.configure(); PathManagers.get().resume();
         startingItems.clear(); for (int i = 0; i < 36; i++) { var stack = mc.player.getInventory().getItem(i); startingItems.merge(stack.getItem(), stack.getCount(), Integer::sum); }
-        step = null; crafting = null; smelting = null; ownedMenu = null; pendingBlock = null; wanderGoal = null; wander = ticks = 0;
+        step = null; crafting = null; smelting = null; ownedMenu = null; pendingBlock = null; placement = null; wanderGoal = null; wander = ticks = 0;
         signature = counts().hashCode(); lastProgress = CombatTelemetry.now(); lastAction = 0; running = true; generation++;
         mc.gui.setScreen(null); status("Starting survival progression");
     }
@@ -106,11 +109,11 @@ public class SurvivalBot extends Module {
             closeOwnedMenu();
         }
         if (eating) mc.options.keyUse.setDown(Input.isPressed(mc.options.keyUse));
-        eating = false; crafting = null; smelting = null; step = null; pendingBlock = null; ownedMenu = null;
+        eating = false; crafting = null; smelting = null; step = null; pendingBlock = null; placement = null; ownedMenu = null;
         status(reason);
     }
     private void closeOwnedMenu() {
-        if (ownedMenu != null && mc.player != null && mc.player.containerMenu == ownedMenu && ownedMenu.getCarried().isEmpty()) mc.player.closeContainer();
+        if (ownedMenu != null && mc.player != null && mc.player.containerMenu == ownedMenu && ownedMenu != mc.player.inventoryMenu && ownedMenu.getCarried().isEmpty()) mc.player.closeContainer();
         ownedMenu = null;
     }
     private Map<Item, Integer> counts() {
@@ -233,6 +236,18 @@ public class SurvivalBot extends Module {
     }
     private boolean near(BlockPos pos) { return mc.player.getEyePosition().distanceToSqr(Vec3.atCenterOf(pos)) <= Math.pow(Math.min(4.5, mc.player.blockInteractionRange()), 2); }
     private boolean station(Block block, boolean open) {
+        // A successful local use is only a prediction. Wait for the world update before
+        // consuming another workstation item or deciding that placement failed.
+        if (placement != null) {
+            if (mc.level.getBlockState(placement).is(placementType)) {
+                if (placementType == Blocks.CRAFTING_TABLE) table = placement;
+                else if (placementType == Blocks.FURNACE) furnace = placement;
+                else chest = placement;
+                placement = null;
+            } else if (CombatTelemetry.now() >= placementDeadline) {
+                throw new IllegalStateException("Workstation placement was not accepted. Check reach and server protection.");
+            } else return false;
+        }
         BlockPos pos = block == Blocks.CRAFTING_TABLE ? table : block == Blocks.FURNACE ? furnace : chest;
         if (!known(pos, block)) pos = null;
         if (pos == null) {
@@ -244,7 +259,7 @@ public class SurvivalBot extends Module {
                 BlockPos candidate = home.offset(dx, dy, dz);
                 if (!near(candidate) || !mc.level.getBlockState(candidate.below()).isSolidRender() || !BlockUtils.canPlaceBlock(candidate, true, block)) continue;
                 if (BlockUtils.place(candidate, new FindItemResult(slot, 1), false, 50, true)) {
-                    if (block == Blocks.CRAFTING_TABLE) table = candidate; else if (block == Blocks.FURNACE) furnace = candidate; else chest = candidate;
+                    placement = candidate; placementType = block; placementDeadline = CombatTelemetry.now() + 5000;
                     lastAction = CombatTelemetry.now(); return false;
                 }
             }
@@ -324,6 +339,6 @@ public class SurvivalBot extends Module {
         if (essentials.get() && !known(chest, Blocks.CHEST)) { if (!station(Blocks.CHEST, false)) return; }
         if (mc.player.blockPosition().distSqr(home) > 4) { baritone.travel(home); status("Kit ready. Returning to camp"); return; }
         pause("Complete: diamond kit and selected supplies ready at camp.");
-        info("Survival kit complete. Camp: %s. The bed and empty bucket are in your inventory.", home.toShortString());
+        info("Survival kit complete. Camp: %s. Your selected supplies are ready.", home.toShortString());
     }
 }

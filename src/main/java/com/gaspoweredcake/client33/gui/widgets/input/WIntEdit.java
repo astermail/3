@@ -36,8 +36,8 @@ public class WIntEdit extends WHorizontalList {
         textBox = add(theme.textBox(Integer.toString(value), this::filter)).minWidth(75).widget();
 
         if (noSlider) {
-            add(theme.button("+")).widget().action = () -> setButton(get() + 1);
-            add(theme.button("-")).widget().action = () -> setButton(get() - 1);
+            add(theme.button("+")).widget().action = () -> setButton((long) get() + 1);
+            add(theme.button("-")).widget().action = () -> setButton((long) get() - 1);
         }
         else {
             slider = add(theme.slider(value, sliderMin, sliderMax)).minWidth(small ? 200 - 75 - spacing : 200).centerY().expandX().widget();
@@ -54,6 +54,8 @@ public class WIntEdit extends WHorizontalList {
                 } catch (NumberFormatException _) {}
             }
 
+            value = Math.clamp(value, min, max);
+            textBox.set(Integer.toString(value));
             if (slider != null) slider.set(value);
 
             if (value != lastValue) {
@@ -99,19 +101,12 @@ public class WIntEdit extends WHorizontalList {
         return good;
     }
 
-    private void setButton(int v) {
-        if (this.value == v) return;
-
-        if (v < min) this.value = min;
-        else this.value = Math.min(v, max);
-
-        if (this.value == v) {
-            textBox.set(Integer.toString(this.value));
-            if (slider != null) slider.set(this.value);
-
-            if (action != null) action.run();
-            if (actionOnRelease != null) actionOnRelease.run();
-        }
+    private void setButton(long requested) {
+        int next = (int) Math.clamp(requested, min, max);
+        if (value == next) return;
+        set(next);
+        if (action != null) action.run();
+        if (actionOnRelease != null) actionOnRelease.run();
     }
 
     public int get() {

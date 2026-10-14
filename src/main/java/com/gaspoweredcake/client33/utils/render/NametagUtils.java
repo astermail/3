@@ -50,6 +50,8 @@ public class NametagUtils {
     }
 
     public static boolean to2D(Vector3d pos, double scale, boolean distanceScaling, boolean allowBehind) {
+        if (!Double.isFinite(pos.x) || !Double.isFinite(pos.y) || !Double.isFinite(pos.z)
+            || !Double.isFinite(scale) || scale <= 0) return false;
         Zoom zoom = Modules.get().get(Zoom.class);
         NametagUtils.scale = scale * zoom.getScaling();
         if (distanceScaling) {
@@ -61,23 +63,8 @@ public class NametagUtils {
         vec4.mul(model, mmMat4);
         mmMat4.mul(projection, pmMat4);
 
-        boolean behind = pmMat4.w <= 0.f;
-
-        if (behind && !allowBehind) return false;
-
-        toScreen(pmMat4);
-        double x = pmMat4.x * mc.getWindow().getWidth();
-        double y = pmMat4.y * mc.getWindow().getHeight();
-
-        if (behind) {
-            x = mc.getWindow().getWidth() - x;
-            y = mc.getWindow().getHeight() - y;
-        }
-
-        if (Double.isInfinite(x) || Double.isInfinite(y)) return false;
-
-        pos.set(x / windowScale, mc.getWindow().getHeight() - y / windowScale, allowBehind ? pmMat4.w : pmMat4.z);
-        return true;
+        return ScreenProjection.project(pmMat4.x, pmMat4.y, pmMat4.z, pmMat4.w,
+            mc.getWindow().getWidth() / windowScale, mc.getWindow().getHeight() / windowScale, allowBehind, pos);
     }
 
     public static void begin(Vector3d pos) {
@@ -115,12 +102,4 @@ public class NametagUtils {
         return Mth.clamp(1 - dist * 0.01, 0.5, Integer.MAX_VALUE);
     }
 
-    private static void toScreen(Vector4f vec) {
-        float newW = 1.0f / vec.w * 0.5f;
-
-        vec.x = vec.x * newW + 0.5f;
-        vec.y = vec.y * newW + 0.5f;
-        vec.z = vec.z * newW + 0.5f;
-        vec.w = newW;
-    }
 }

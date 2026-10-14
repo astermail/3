@@ -49,8 +49,12 @@ public class HudTab extends Tab {
 
         @Override
         public void initWidgets() {
+            var style = add(theme.horizontalList()).expandX().widget();
+            style.add(theme.button("Euphoric preset")).widget().action = () -> { hud.applyEuphoricStyle(); taskAfterRender = this::reload; };
+            style.add(theme.button("Add status monitor")).widget().action = () -> { hud.pinModule("esp"); mc.gui.setScreen(new HudEditorScreen(theme)); };
+            add(theme.label("Drag monitors in Edit. Resize using the lower-right corner; right-click to pin.", 560)).expandX();
             settingsContainer = add(theme.verticalList()).expandX().widget();
-            settingsContainer.add(theme.settings(hud.settings)).expandX().widget();
+            settingsContainer.add(new com.gaspoweredcake.client33.gui.widgets.containers.WSettingsWorkspace(hud.settings, "")).expandX();
 
             add(theme.horizontalSeparator()).expandX();
 
@@ -78,7 +82,7 @@ public class HudTab extends Tab {
         public void tick() {
             super.tick();
 
-            hud.settings.tick(settingsContainer, theme);
+            for (var cell : settingsContainer.cells) if (cell.widget() instanceof com.gaspoweredcake.client33.gui.widgets.containers.WSettingsWorkspace workspace) workspace.refreshIfNeeded();
         }
 
         @Override

@@ -58,8 +58,14 @@ public abstract class EntityRendererMixin<T extends Entity, S extends EntityRend
 
     @Inject(method = "shouldRender", at = @At("HEAD"), cancellable = true)
     private void shouldRender(T entity, Frustum culler, double camX, double camY, double camZ, CallbackInfoReturnable<Boolean> cir) {
-        if (noRender.noEntity(entity)) cir.setReturnValue(false);
-        if (noRender.noFallingBlocks() && entity instanceof FallingBlockEntity) cir.setReturnValue(false);
+        if (noRender.noEntity(entity) || (noRender.noFallingBlocks() && entity instanceof FallingBlockEntity)) {
+            cir.setReturnValue(false);
+            return;
+        }
+        // Shader/glow need a model render state even past vanilla's entity-distance cutoff.
+        if (entity instanceof Player && esp.forceRender() && !esp.shouldSkip(entity)) {
+            cir.setReturnValue(true);
+        }
     }
 
     @Inject(method = "affectedByCulling", at = @At("HEAD"), cancellable = true)

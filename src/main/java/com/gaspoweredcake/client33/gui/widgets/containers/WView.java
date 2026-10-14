@@ -59,6 +59,7 @@ public abstract class WView extends WVerticalList {
             actualHeight = height;
             scroll = 0;
             targetScroll = 0;
+            moveAfterPositionWidgets = false;
         }
     }
 
@@ -67,7 +68,7 @@ public abstract class WView extends WVerticalList {
         super.onCalculateWidgetPositions();
 
         if (moveAfterPositionWidgets) {
-            scroll = Mth.clamp(scroll, 0, actualHeight - height);
+            scroll = Mth.clamp(scroll, 0, Math.max(0, actualHeight - height));
             targetScroll = scroll;
 
             moveCells(0, -scroll);
@@ -113,7 +114,7 @@ public abstract class WView extends WVerticalList {
             //scroll += Math.round(theme.scale(mouseDelta + mouseDelta * ((height / actualHeight) * 0.7627725)));
             //scroll += Math.round(theme.scale(mouseDelta * (1 / (height / actualHeight))));
             scroll += mouseDelta * (actualHeight - height) / Math.max(1, height - handleHeight());
-            scroll = Mth.clamp(scroll, 0, actualHeight - height);
+            scroll = Mth.clamp(scroll, 0, Math.max(0, actualHeight - height));
 
             targetScroll = scroll;
 
@@ -152,7 +153,7 @@ public abstract class WView extends WVerticalList {
 
     private void updateScroll(double delta) {
         double preScroll = scroll;
-        double max = actualHeight - height;
+        double max = Math.max(0, actualHeight - height);
 
         if (Math.abs(targetScroll - scroll) < 1) scroll = targetScroll;
         else if (targetScroll > scroll) {

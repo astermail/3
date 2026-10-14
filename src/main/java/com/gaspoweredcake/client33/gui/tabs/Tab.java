@@ -19,7 +19,7 @@ public abstract class Tab {
 
     public void openScreen(GuiTheme theme) {
         TabScreen screen = this.createScreen(theme);
-        if (!(screen instanceof com.gaspoweredcake.client33.gui.screens.ModulesScreen))
+        if (!(screen instanceof com.gaspoweredcake.client33.gui.screens.ModulesScreen) && !(screen instanceof WindowTabScreen))
             screen.addDirect(new com.gaspoweredcake.client33.gui.widgets.containers.WPageNavigation(this)).bottom().pad(12);
         mc.gui.setScreen(screen);
     }

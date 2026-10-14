@@ -21,7 +21,11 @@ public class WClient33Button extends WButton implements Client33Widget {
         Client33GuiTheme theme = theme();
         double pad = pad();
 
-        renderBackground(renderer, this, pressed, mouseOver);
+        var surface = new com.gaspoweredcake.client33.utils.render.color.Color(theme.surface(pressed, mouseOver));
+        int lift = pressed ? 6 : mouseOver ? 22 : 12;
+        surface.set(Math.min(255, surface.r + lift), Math.min(255, surface.g + lift), Math.min(255, surface.b + lift), surface.a);
+        renderer.roundedQuad(x, y, width, height, theme.scale(theme.cornerRadius.get()), surface);
+        if (mouseOver) renderer.quad(x + theme.scale(6), y + height - theme.scale(1), width - theme.scale(12), theme.scale(1), theme.accent());
 
         if (text != null) {
             renderer.text(text, x + width / 2 - textWidth / 2, y + pad, theme.textColor(), false);

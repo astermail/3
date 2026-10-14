@@ -65,12 +65,11 @@ public class WDoubleEdit extends WHorizontalList {
                 value = lastValue;
                 textBox.set(valueString());
             }
-            double preValidationValue = value;
 
             if (value < min) value = min;
             else if (value > max) value = max;
 
-            if (value != preValidationValue) textBox.set(valueString());
+            textBox.set(valueString());
             if (slider != null) slider.set(value);
 
             if (value != lastValue) {
@@ -118,19 +117,12 @@ public class WDoubleEdit extends WHorizontalList {
         return good;
     }
 
-    private void setButton(double v) {
-        if (this.value == v) return;
-
-        if (v < min) this.value = min;
-        else this.value = Math.min(v, max);
-
-        if (this.value == v) {
-            textBox.set(valueString());
-            if (slider != null) slider.set(this.value);
-
-            if (action != null) action.run();
-            if (actionOnRelease != null) actionOnRelease.run();
-        }
+    private void setButton(double requested) {
+        double next = Math.clamp(requested, min, max);
+        if (value == next) return;
+        set(next);
+        if (action != null) action.run();
+        if (actionOnRelease != null) actionOnRelease.run();
     }
 
     public double get() {

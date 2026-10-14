@@ -76,6 +76,7 @@ public class Client33Starscript {
     @PreInit(dependencies = PathManagers.class)
     public static void init() {
         StandardLib.init(ss);
+        com.gaspoweredcake.client33.gui.runtime.RuntimeUi.INSTANCE.exposeValues(ss);
 
         // General
         ss.set("mc_version", SharedConstants.getCurrentVersion().name());

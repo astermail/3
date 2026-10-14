@@ -33,7 +33,7 @@ public class HudElementInfo<T extends HudElement> {
     }
 
     public HudElementInfo(HudGroup group, String name, String description, Supplier<T> factory) {
-        this(group, name, Utils.nameToTitle(name), description, factory);
+        this(group, name, com.gaspoweredcake.client33.gui.utils.DisplayNames.title(name), description, factory);
     }
 
     public Preset addPreset(String title, Consumer<T> callback) {

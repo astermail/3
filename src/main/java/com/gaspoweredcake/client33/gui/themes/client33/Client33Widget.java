@@ -17,9 +17,9 @@ public interface Client33Widget extends BaseWidget {
 
     default void renderBackground(GuiRenderer renderer, WWidget widget, Color outlineColor, Color backgroundColor) {
         Client33GuiTheme theme = theme();
-        double line = theme.scale(1), radius = theme.scale(7);
+        double line = theme.scale(1), radius = theme.scale(theme.cornerRadius.get());
         renderer.roundedQuad(widget.x, widget.y, widget.width, widget.height, radius, outlineColor);
-        renderer.roundedQuad(widget.x + line, widget.y + line, widget.width - line * 2, widget.height - line * 2, radius - line, backgroundColor);
+        renderer.roundedQuad(widget.x + line, widget.y + line, widget.width - line * 2, widget.height - line * 2, Math.max(0, radius - line), backgroundColor);
     }
 
     default void renderBackground(GuiRenderer renderer, WWidget widget, boolean pressed, boolean mouseOver) {

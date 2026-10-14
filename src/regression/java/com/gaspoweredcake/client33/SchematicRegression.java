@@ -57,6 +57,26 @@ public final class SchematicRegression {
         boolean rejected = false;
         try { com.gaspoweredcake.client33.utils.world.SchematicFiles.origin("1.5", "64", "0"); } catch (IllegalArgumentException expected) { rejected = true; }
         check(rejected, "Fractional origins do not silently round");
+        var offline = new com.gaspoweredcake.client33.utils.world.SchematicBuildState(false, false, true, false, false);
+        check(!offline.canLoad() && !offline.canPlace() && !offline.canStop(), "World actions remain unavailable outside a world");
+        var ready = new com.gaspoweredcake.client33.utils.world.SchematicBuildState(true, false, true, false, false);
+        check(ready.canLoad() && ready.canPlace() && !ready.canPause() && !ready.canResume(), "Ready session exposes placement but no runtime actions");
+        var scanning = new com.gaspoweredcake.client33.utils.world.SchematicBuildState(true, true, true, false, false);
+        check(!scanning.canLoad() && !scanning.canPlace(), "Material scanning cannot race a load or start");
+        var paused = new com.gaspoweredcake.client33.utils.world.SchematicBuildState(true, false, true, true, true);
+        check(!paused.canLoad() && !paused.canPlace() && paused.canResume() && paused.canStop() && !paused.canPause(), "Paused builder still owns its file and origin");
+        var building = new com.gaspoweredcake.client33.utils.world.SchematicBuildState(true, false, true, true, false);
+        check(building.canPause() && building.canStop() && !building.canResume(), "Active build exposes only relevant runtime actions");
+        var small = new com.gaspoweredcake.client33.utils.world.SchematicLibrary.Entry("Oak House.SCHEM", 1024, 20);
+        var large = new com.gaspoweredcake.client33.utils.world.SchematicLibrary.Entry("Camp.schematic", 2048, 10);
+        var libraryEntries = List.of(small, large);
+        check(com.gaspoweredcake.client33.utils.world.SchematicLibrary.filter(libraryEntries, "oak_house", com.gaspoweredcake.client33.utils.world.SchematicLibrary.Sort.Name).equals(List.of(small)), "Library search tolerates case and filename separators");
+        check(com.gaspoweredcake.client33.utils.world.SchematicLibrary.filter(libraryEntries, "", com.gaspoweredcake.client33.utils.world.SchematicLibrary.Sort.Newest).getFirst().equals(small), "Recent sorting uses observed file times");
+        check(com.gaspoweredcake.client33.utils.world.SchematicLibrary.filter(libraryEntries, "", com.gaspoweredcake.client33.utils.world.SchematicLibrary.Sort.Largest).getFirst().equals(large), "Size sort uses byte counts");
+        check(small.format().equals("SCHEM") && small.sizeText().equals("1.0 KiB"), "Library metadata shows format and readable size");
+        check(com.gaspoweredcake.client33.utils.world.SchematicFiles.externalPath(" \"/tmp/my house.schem\" ").equals(java.nio.file.Path.of("/tmp/my house.schem")), "Quoted path imports preserve spaces");
+        try { com.gaspoweredcake.client33.utils.world.SchematicFiles.externalPath("  "); throw new AssertionError("Empty path accepted"); }
+        catch (IllegalArgumentException expected) { }
         java.nio.file.Path root = null;
         try {
             root = java.nio.file.Files.createTempDirectory("client33-schematic-files");
@@ -67,6 +87,28 @@ public final class SchematicRegression {
             java.nio.file.Files.createSymbolicLink(root.resolve("alias.schem"), root.resolve("House.SCHEM"));
             var list = com.gaspoweredcake.client33.utils.world.SchematicFiles.list(root, List.of(".schem", "schematic"));
             check(list.equals(List.of("camp.schematic", "House.SCHEM")), "File picker uses supported extensions, case-insensitive names, regular files and sorted results");
+            var library = root.resolve("library");
+            var extensions = List.of("schem", ".schematic");
+            var imported = com.gaspoweredcake.client33.utils.world.SchematicFiles.importFile(root.resolve("House.SCHEM"), library, extensions);
+            check(imported.equals("House.SCHEM") && java.nio.file.Files.readString(library.resolve(imported)).equals("synthetic"), "Import preserves bytes and filename");
+            java.nio.file.Files.writeString(root.resolve("House.SCHEM"), "second");
+            var duplicate = com.gaspoweredcake.client33.utils.world.SchematicFiles.importFile(root.resolve("House.SCHEM"), library, extensions);
+            check(duplicate.equals("House (1).SCHEM") && java.nio.file.Files.readString(library.resolve(imported)).equals("synthetic"), "Duplicate import never overwrites the original");
+            check(com.gaspoweredcake.client33.utils.world.SchematicFiles.importFile(library.resolve(imported), library, extensions).equals(imported), "Selecting an existing library file does not duplicate it");
+            for (String invalid : List.of("readme.txt", "folder.schem", "alias.schem")) {
+                boolean invalidRejected = false;
+                try { com.gaspoweredcake.client33.utils.world.SchematicFiles.importFile(root.resolve(invalid), library, extensions); }
+                catch (java.io.IOException expected) { invalidRejected = true; }
+                check(invalidRejected, "Unsupported files, directories and symbolic links are rejected");
+            }
+            try (var importedFiles = java.nio.file.Files.list(library)) {
+                check(importedFiles.count() == 2, "Imports leave no temporary files or rejected entries");
+            }
+            var metadata = com.gaspoweredcake.client33.utils.world.SchematicFiles.scan(library, extensions);
+            check(metadata.size() == 2 && metadata.stream().anyMatch(entry -> entry.name().equals(imported) && entry.bytes() == "synthetic".length()), "Library scans real file metadata without parsing payloads");
+            for (int i = 0; i < 258; i++) java.nio.file.Files.writeString(root.resolve("extra-" + i + ".schem"), "fixture");
+            check(com.gaspoweredcake.client33.utils.world.SchematicFiles.list(root, extensions).size() == 260, "Files past the old 256-entry limit remain searchable");
+
         } catch (java.io.IOException e) { throw new AssertionError(e); }
         finally {
             if (root != null) try (var paths = java.nio.file.Files.walk(root)) { for (var path : paths.sorted(java.util.Comparator.reverseOrder()).toList()) java.nio.file.Files.deleteIfExists(path); }

@@ -22,6 +22,7 @@ public class CustomTextRenderer implements TextRenderer {
 
     public final FontFace fontFace;
 
+    private final Color shadowColor = new Color();
     private final Font[] fonts;
     private Font font;
 
@@ -79,13 +80,13 @@ public class CustomTextRenderer implements TextRenderer {
         if (text.isEmpty()) return 0;
 
         Font font = building ? this.font : fonts[0];
-        return (font.getWidth(text, length) + (shadow ? 1 : 0)) * scale / 1.5;
+        return (font.getWidth(text, length) + (shadow ? (building ? fontScale : 1) : 0)) * scale / 1.5;
     }
 
     @Override
     public double getHeight(boolean shadow) {
         Font font = building ? this.font : fonts[0];
-        return (font.getHeight() + 1 + (shadow ? 1 : 0)) * scale / 1.5;
+        return (font.getHeight() + 1 + (shadow ? (building ? fontScale : 1) : 0)) * scale / 1.5;
     }
 
     @Override
@@ -94,13 +95,9 @@ public class CustomTextRenderer implements TextRenderer {
 
         double width;
         if (shadow) {
-            int preShadowA = SHADOW_COLOR.a;
-            SHADOW_COLOR.a = (int) (color.a / 255.0 * preShadowA);
-
-            width = font.render(mesh, text, x + fontScale * scale / 1.5, y + fontScale * scale / 1.5, SHADOW_COLOR, scale / 1.5);
-            font.render(mesh, text, x, y, color, scale / 1.5);
-
-            SHADOW_COLOR.a = preShadowA;
+            shadowColor.set(SHADOW_COLOR).a((int) (color.a / 255.0 * SHADOW_COLOR.a));
+            font.render(mesh, text, x + fontScale * scale / 1.5, y + fontScale * scale / 1.5, shadowColor, scale / 1.5);
+            width = font.render(mesh, text, x, y, color, scale / 1.5);
         } else {
             width = font.render(mesh, text, x, y, color, scale / 1.5);
         }
@@ -117,19 +114,20 @@ public class CustomTextRenderer implements TextRenderer {
     public void end() {
         if (!building) throw new RuntimeException("CustomTextRenderer.end() called without calling begin()");
 
-        if (!scaleOnly) {
-            mesh.end();
-
-            MeshRenderer.begin()
-                .attachments(Minecraft.getInstance().gameRenderer.mainRenderTarget())
-                .pipeline(Client33RenderPipelines.UI_TEXT)
-                .mesh(mesh)
-                .sampler("u_Texture", font.texture.getTextureView(), font.texture.getSampler())
-                .end();
+        try {
+            if (!scaleOnly) {
+                mesh.end();
+                MeshRenderer.begin()
+                    .attachments(Minecraft.getInstance().gameRenderer.mainRenderTarget())
+                    .pipeline(Client33RenderPipelines.UI_TEXT)
+                    .mesh(mesh)
+                    .sampler("u_Texture", font.texture.getTextureView(), font.texture.getSampler())
+                    .end();
+            }
+        } finally {
+            building = false;
+            scale = 1;
         }
-
-        building = false;
-        scale = 1;
     }
 
     public void destroy() {

@@ -42,6 +42,7 @@ public class StorageBlockListSetting extends Setting<List<BlockEntityType<?>>> {
         BlockEntityTypes.DECORATED_POT,
         BlockEntityTypes.DROPPER,
         BlockEntityTypes.ENDER_CHEST,
+        BlockEntityTypes.ENCHANTING_TABLE,
         BlockEntityTypes.FURNACE,
         BlockEntityTypes.HOPPER,
         BlockEntityTypes.SHULKER_BOX,

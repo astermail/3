@@ -28,6 +28,8 @@ import com.gaspoweredcake.client33.utils.player.PlayerUtils;
 import com.gaspoweredcake.client33.utils.player.Rotations;
 import com.gaspoweredcake.client33.utils.world.TickRate;
 import com.gaspoweredcake.client33.utils.combat.CombatTelemetry;
+import com.gaspoweredcake.client33.utils.combat.AttackCadence;
+import net.minecraft.network.protocol.game.ServerboundAttackPacket;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 import net.minecraft.tags.ItemTags;
@@ -62,7 +64,7 @@ public class KillAura extends Module {
         .name("server-cooldown").description("Estimate cooldown from server time packets, sent attacks and weapon speed. Falls back to vanilla timing when server time samples are unavailable or stale.")
         .defaultValue(true).build());
     private final Setting<Integer> cooldownMargin = sgTiming.add(new IntSetting.Builder()
-        .name("cooldown-margin-ms").description("Extra timing margin for network jitter. Custom Delay overrides cooldown timing.")
+        .name("cooldown-margin-ms").description("Extra timing margin after weapon recharge. Custom Delay can only add more waiting.")
         .defaultValue(25).range(0, 250).sliderRange(0, 250).build());
 
     // General
@@ -165,7 +167,7 @@ public class KillAura extends Module {
 
     private final Setting<Integer> maxTargets = sgTargeting.add(new IntSetting.Builder()
         .name("max-targets")
-        .description("How many entities to target at once.")
+        .description("Maximum candidates to consider. Attacks one ready target per weapon recharge.")
         .defaultValue(1)
         .min(1)
         .sliderRange(1, 5)
@@ -274,14 +276,14 @@ public class KillAura extends Module {
 
     private final Setting<Boolean> customDelay = sgTiming.add(new BoolSetting.Builder()
         .name("custom-delay")
-        .description("Use a custom delay instead of the vanilla cooldown.")
+        .description("Add a minimum interval between charged attacks. Never bypasses weapon recharge.")
         .defaultValue(false)
         .build()
     );
 
     private final Setting<Integer> hitDelay = sgTiming.add(new IntSetting.Builder()
         .name("hit-delay")
-        .description("How fast you hit the entity in ticks.")
+        .description("Minimum ticks between attacks, in addition to full weapon recharge.")
         .defaultValue(11)
         .min(0)
         .sliderMax(60)
@@ -302,6 +304,11 @@ public class KillAura extends Module {
     private final List<Entity> targets = new ArrayList<>();
     private final TickTimer switchTimer = new TickTimer();
     private final TickTimer attackTimer = new TickTimer();
+    private final AttackCadence cadence = new AttackCadence();
+    private final Setting<Boolean> waitHurt = sgTiming.add(new BoolSetting.Builder()
+        .name("wait-for-hurt-recovery")
+        .description("Avoid attacking a living target still in its observed hurt animation; prefer another ready target.")
+        .defaultValue(true).build());
     private long attackGeneration;
     private String status = "Ready";
     private boolean wasPathing = false;
@@ -321,6 +328,7 @@ public class KillAura extends Module {
         swapped = false;
         switchTimer.reset();
         attackTimer.reset();
+        cadence.reset();
         attackGeneration++;
         status = "Ready";
     }
@@ -340,6 +348,7 @@ public class KillAura extends Module {
             pause("Player unavailable");
             return;
         }
+        if (mc.gui.screen() != null) { pause("Screen open"); return; }
         if (Modules.get().get(AutoEat.class).pausesKillAura() || Modules.get().get(AutoGap.class).pausesKillAura()) {
             pause("Eating");
             return;
@@ -390,12 +399,8 @@ public class KillAura extends Module {
             ItemStack heldItem = mc.player.getMainHandItem();
             FindItemResult weaponResult = new FindItemResult(selectedSlot, heldItem.getCount());
 
-            if (shouldShieldBreak()) {
-                if (!(heldItem.getItem() instanceof AxeItem)) {
-                    weaponResult = InvUtils.find(itemStack -> itemStack.getItem() instanceof AxeItem, 0, 8);
-                }
-            } else if (!acceptableWeapon(heldItem)) {
-                weaponResult = InvUtils.find(this::acceptableWeapon, 0, 8);
+            if (!usableForTarget(heldItem, primary)) {
+                weaponResult = InvUtils.find(itemStack -> usableForTarget(itemStack, primary), 0, 8);
             }
 
             if (!weaponResult.found()) {
@@ -412,31 +417,37 @@ public class KillAura extends Module {
             }
         }
 
-        if (!acceptableWeapon(mc.player.getMainHandItem())) {
-            pause("Hold a configured weapon");
+        if (!usableForTarget(mc.player.getMainHandItem(), primary)) {
+            pause("Hold a configured weapon within reach");
             return;
         }
 
         attacking = true;
-        status = delayCheck() ? "Attacking" : "Waiting for cooldown";
+        status = !targetRecovered(primary) ? "Waiting for target recovery" : delayCheck() ? "Ready to attack" : "Charging weapon";
         if (pauseOnCombat.get() && PathManagers.get().isPathing() && !wasPathing) {
             PathManagers.get().pause();
             wasPathing = true;
         }
 
         RotationMode rotationMode = rotation.get();
-        if (delayCheck()) {
+        if (delayCheck() && targetRecovered(primary)) {
             long generation = attackGeneration;
-            for (Entity target : List.copyOf(targets)) {
-                Runnable hit = () -> {
-                    if (generation == attackGeneration && isActive() && attacking
-                        && mc.player != null && mc.level != null && mc.gameMode != null
-                        && target.level() == mc.level && delayCheck()
-                        && acceptableWeapon(mc.player.getMainHandItem()) && entityCheck(target)) attack(target);
-                };
-                if (rotationMode == RotationMode.None) hit.run();
-                else rotateTo(target, hit);
-            }
+            Object player = mc.player, world = mc.level;
+            Runnable hit = () -> {
+                if (generation == attackGeneration && isActive() && attacking
+                    && mc.player == player && mc.level == world && mc.gameMode != null
+                    && mc.player.isAlive() && mc.gui.screen() == null
+                    && primary.level() == mc.level && delayCheck() && targetRecovered(primary)
+                    && (!pauseOnUse.get() || (!mc.player.isUsingItem() && !mc.gameMode.isDestroying()))
+                    && !com.gaspoweredcake.client33.utils.player.PotionUse.anyBusy()
+                    && !Modules.get().get(AutoEat.class).pausesKillAura() && !Modules.get().get(AutoGap.class).pausesKillAura()
+                    && (!onlyOnClick.get() || mc.options.keyAttack.isDown())
+                    && (!onlyOnLook.get() || mc.crosshairPickEntity == primary)
+                    && usableForTarget(mc.player.getMainHandItem(), primary) && entityCheck(primary)) attack(primary);
+            };
+            // Queue one attack per charge; extra candidates are alternatives, never a same-tick burst.
+            if (rotationMode == RotationMode.None) hit.run();
+            else rotateTo(primary, hit);
         } else if (rotationMode == RotationMode.Always) {
             rotateTo(primary, null);
         }
@@ -447,6 +458,11 @@ public class KillAura extends Module {
         if (event.packet instanceof ServerboundSetCarriedItemPacket) {
             switchTimer.waitTicks(switchDelay.get());
         }
+    }
+
+    @EventHandler
+    private void onSentPacket(PacketEvent.Sent event) {
+        if (event.packet instanceof ServerboundAttackPacket) cadence.record(CombatTelemetry.now());
     }
 
     public void pauseForEating() {
@@ -473,17 +489,22 @@ public class KillAura extends Module {
         previousSlot = -1;
     }
 
-    private boolean shouldShieldBreak() {
+    private boolean shouldShieldBreak(Entity target) {
         if (!autoSwitch.get() || shieldMode.get() != ShieldMode.Break) return false;
+        return target instanceof Player player && Modules.get().get(ShieldPredict.class).blocks(player);
+    }
 
-        for (Entity target : targets) {
-            if (target instanceof Player player) {
-                if (Modules.get().get(ShieldPredict.class).blocks(player)) {
-                    return true;
-                }
-            }
+    private boolean usableForTarget(ItemStack stack, Entity target) {
+        return (shouldShieldBreak(target) ? stack.getItem() instanceof AxeItem : acceptableWeapon(stack))
+            && mc.player.isWithinAttackRange(stack, target.getBoundingBox(), 0);
+    }
+
+    private boolean hasReachableWeapon(Entity target) {
+        if (usableForTarget(mc.player.getMainHandItem(), target)) return true;
+        if (!autoSwitch.get()) return false;
+        for (int slot = 0; slot < 9; slot++) {
+            if (usableForTarget(mc.player.getInventory().getItem(slot), target)) return true;
         }
-
         return false;
     }
 
@@ -503,6 +524,7 @@ public class KillAura extends Module {
         double dz = eye.z - Mth.clamp(eye.z, hitbox.minZ, hitbox.maxZ);
         double distanceSquared = dx * dx + dy * dy + dz * dz;
         if (distanceSquared > range.get() * range.get()) return false;
+        if (!hasReachableWeapon(entity)) return false;
         double wallReach = Math.min(range.get(), wallsRange.get());
         if (!PlayerUtils.canSeeEntity(entity) && distanceSquared > wallReach * wallReach) return false;
         if (Math.abs(Mth.wrapDegrees(Rotations.getYaw(entity) - mc.player.getYRot())) > fieldOfView.get() / 2) return false;
@@ -546,10 +568,15 @@ public class KillAura extends Module {
             if (!targets.contains(player) && entityCheck(player)) targets.add(player);
         });
         targets.sort((left, right) -> {
+            int recovery = Boolean.compare(!targetRecovered(left), !targetRecovered(right));
+            if (recovery != 0) return recovery;
             if (priority.get() != SortPriority.ClosestAngle) return priority.get().compare(left, right);
             return Double.compare(angleScore(left), angleScore(right));
         });
-        if (keepTarget.get() && previous != null && targets.remove(previous)) targets.addFirst(previous);
+        if (keepTarget.get() && previous != null && targets.contains(previous)
+            && (targetRecovered(previous) || targets.stream().noneMatch(this::targetRecovered))) {
+            targets.remove(previous); targets.addFirst(previous);
+        }
         if (targets.size() > maxTargets.get()) targets.subList(maxTargets.get(), targets.size()).clear();
     }
 
@@ -559,18 +586,26 @@ public class KillAura extends Module {
         return yaw * yaw + pitch * pitch;
     }
 
+    private boolean targetRecovered(Entity target) {
+        return !waitHurt.get() || !(target instanceof LivingEntity living) || living.hurtTime <= 0;
+    }
+
     private boolean delayCheck() {
-        if (!switchTimer.ready()) return false;
-        if (customDelay.get()) return attackTimer.ready();
-        if (mc.player.getAttackStrengthScale(0) < 1) return false;
-        return !serverCooldown.get() || CombatTelemetry.CLOCK.readyWithFallback(CombatTelemetry.now(),
-            mc.player.getCurrentItemAttackStrengthDelay(), cooldownMargin.get());
+        if (mc.player == null || !switchTimer.ready()) return false;
+        long now = CombatTelemetry.now();
+        double ticks = mc.player.getCurrentItemAttackStrengthDelay();
+        double tickMillis = serverCooldown.get() && !CombatTelemetry.CLOCK.stale(now) ? CombatTelemetry.CLOCK.tickMillis() : 50;
+        if (!cadence.ready(now, mc.player.getAttackStrengthScale(0), ticks, tickMillis, cooldownMargin.get())) return false;
+        if (customDelay.get() && !attackTimer.ready()) return false;
+        return !serverCooldown.get() || CombatTelemetry.CLOCK.readyWithFallback(now, ticks, cooldownMargin.get());
     }
 
     private void attack(Entity target) {
+        // Reserve before invoking event hooks so reentrant/cancelled actions cannot cause a burst.
+        cadence.record(CombatTelemetry.now());
         mc.gameMode.attack(mc.player, target);
         mc.player.swing(InteractionHand.MAIN_HAND);
-
+        status = "Charging weapon";
         attackTimer.waitTicks(TickTimer.serverDelay(hitDelay.get(), TickRate.INSTANCE.getTickRate(), tpsSync.get()));
     }
 
@@ -579,7 +614,6 @@ public class KillAura extends Module {
     }
 
     private boolean acceptableWeapon(ItemStack stack) {
-        if (shouldShieldBreak()) return stack.getItem() instanceof AxeItem;
         if (attackWhenHolding.get() == AttackItems.All) return true;
 
         if (weapons.get().contains(Items.DIAMOND_SWORD) && stack.is(ItemTags.SWORDS)) return true;

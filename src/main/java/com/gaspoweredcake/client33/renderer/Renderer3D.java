@@ -32,16 +32,17 @@ public class Renderer3D {
     }
 
     public void render(PoseStack matrices) {
-        MeshRenderer.begin()
-            .attachments(Minecraft.getInstance().gameRenderer.mainRenderTarget())
-            .pipeline(linesPipeline)
-            .mesh(lines, matrices)
-            .end();
-
+        // Submit translucent fills first so outlines remain crisp.
         MeshRenderer.begin()
             .attachments(Minecraft.getInstance().gameRenderer.mainRenderTarget())
             .pipeline(trianglesPipeline)
             .mesh(triangles, matrices)
+            .end();
+
+        MeshRenderer.begin()
+            .attachments(Minecraft.getInstance().gameRenderer.mainRenderTarget())
+            .pipeline(linesPipeline)
+            .mesh(lines, matrices)
             .end();
     }
 

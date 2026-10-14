@@ -98,6 +98,7 @@ public class DefaultSettingsWidgetFactory extends SettingsWidgetFactory {
         for (RemoveInfo removeInfo : removeInfoList) {
             removeInfo.remove(list);
         }
+        if (list.cells.isEmpty()) list.add(theme.label("No matching settings."));
 
         return list;
     }
@@ -108,15 +109,15 @@ public class DefaultSettingsWidgetFactory extends SettingsWidgetFactory {
     }
 
     private void group(WVerticalList list, SettingGroup group, String filter, List<RemoveInfo> removeInfoList) {
-        WSection section = list.add(theme.section(group.name, group.sectionExpanded)).expandX().widget();
-        section.action = () -> group.sectionExpanded = section.isExpanded();
+        WSection section = list.add(theme.section(group.name, !filter.isBlank() || group.sectionExpanded)).expandX().widget();
+        section.action = () -> { if (filter.isBlank()) group.sectionExpanded = section.isExpanded(); };
 
         WTable table = section.add(theme.table()).expandX().widget();
 
         RemoveInfo removeInfo = null;
 
         for (Setting<?> setting : group) {
-            if (!Strings.CI.contains(setting.title, filter)) continue;
+            if (!Strings.CI.contains(setting.title, filter) && !Strings.CI.contains(setting.description, filter) && !Strings.CI.contains(group.name, filter)) continue;
 
             boolean visible = setting.isVisible();
             setting.lastWasVisible = visible;

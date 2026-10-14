@@ -88,7 +88,7 @@ public class ActiveModulesHud extends HudElement {
     private final Setting<ColorMode> colorMode = sgColor.add(new EnumSetting.Builder<ColorMode>()
         .name("color-mode")
         .description("What color to use for active modules.")
-        .defaultValue(ColorMode.Rainbow)
+        .defaultValue(ColorMode.Euphoric)
         .build()
     );
 
@@ -265,6 +265,7 @@ public class ActiveModulesHud extends HudElement {
 
         switch (colorMode.get()) {
             case Random -> color = module.color;
+            case Euphoric -> color = com.gaspoweredcake.client33.utils.render.EuphoricPalette.sample(rainbowHue1 * 0.15 + index * 0.035, 255);
             case Rainbow -> {
                 rainbowHue2 += rainbowSpread.get();
                 int c = java.awt.Color.HSBtoRGB((float) rainbowHue2, rainbowSaturation.get().floatValue(), rainbowBrightness.get().floatValue());
@@ -367,6 +368,7 @@ public class ActiveModulesHud extends HudElement {
 
     public enum ColorMode {
         Flat,
+        Euphoric,
         Random,
         Rainbow
     }

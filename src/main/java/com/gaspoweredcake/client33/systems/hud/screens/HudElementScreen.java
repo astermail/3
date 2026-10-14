@@ -70,6 +70,10 @@ public class HudElementScreen extends WindowScreen {
 
     @Override
     public void initWidgets() {
+        var pinRow = add(theme.horizontalList()).expandX().widget();
+        var pin = pinRow.add(theme.checkbox(element.pinned)).widget();
+        pinRow.add(theme.label("Pin position (lock moving and resizing)"));
+        pin.action = () -> element.pinned = pin.checked;
         // Description
         add(theme.label(element.info.description, getWindowWidth() / 2.0));
 

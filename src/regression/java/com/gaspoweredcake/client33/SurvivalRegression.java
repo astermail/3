@@ -11,6 +11,7 @@ public final class SurvivalRegression {
     public static void run() {
         validateVanillaRecipes();
         validateInventoryAcknowledgement();
+        CraftingRegression.run();
         var goals = SurvivalPlan.goals(true, 32, 8, 16);
         Map<Item, Integer> counts = new HashMap<>();
         boolean table = false, furnace = false, done = false;

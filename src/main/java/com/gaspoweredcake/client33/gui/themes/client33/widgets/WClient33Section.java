@@ -17,6 +17,12 @@ public class WClient33Section extends WSection {
     }
 
     @Override
+    protected void onRender(GuiRenderer renderer, double mouseX, double mouseY, double delta) {
+        var client = (com.gaspoweredcake.client33.gui.themes.client33.Client33GuiTheme) theme;
+        renderer.roundedQuad(x, y, width, height, theme.scale(3), client.surface());
+    }
+
+    @Override
     protected WHeader createHeader() {
         return new WClient33Header(title);
     }
@@ -30,7 +36,7 @@ public class WClient33Section extends WSection {
 
         @Override
         public void init() {
-            add(theme.horizontalSeparator(title)).expandX();
+            add(theme.label(title)).pad(8).expandCellX();
 
             if (headerWidget != null) add(headerWidget);
 

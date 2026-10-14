@@ -141,28 +141,23 @@ public abstract class LocalPlayerMixin extends AbstractClientPlayer {
 
     // Sprint
 
-    @ModifyExpressionValue(method = "canStartSprinting", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/player/ClientInput;hasForwardImpulse()Z"))
-    private boolean modifyIsWalking(boolean original) {
-        if (!Modules.get().get(Sprint.class).rageSprint()) return original;
-
-        float forwards = Math.abs(zza);
-        float sideways = Math.abs(xxa);
-
-        return (isUnderWater() ? (forwards > 1.0E-5F || sideways > 1.0E-5F) : (forwards > 0.8 || sideways > 0.8));
+    @ModifyExpressionValue(method = "aiStep", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/player/Input;sprint()Z"))
+    private boolean requestAutomaticSprint(boolean original) {
+        return original || Modules.get().get(Sprint.class).shouldSprint();
     }
 
-    @ModifyExpressionValue(method = "aiStep", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/player/ClientInput;hasForwardImpulse()Z"))
-    private boolean modifyAiStep(boolean original) {
-        if (!Modules.get().get(Sprint.class).rageSprint()) return original;
-
-        return Math.abs(xxa) > 1.0E-5F || Math.abs(zza) > 1.0E-5F;
+    @ModifyReturnValue(method = "canStartSprinting", at = @At("RETURN"))
+    private boolean allowDirectionalSprint(boolean original) {
+        Sprint sprint = Modules.get().get(Sprint.class);
+        return sprint.rageSprint() ? !isSprinting() && sprint.shouldSprint() : original;
     }
 
-    @WrapWithCondition(method = "aiStep", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/player/LocalPlayer;setSprinting(Z)V", ordinal = 3))
-    private boolean wrapSetSprinting(LocalPlayer instance, boolean b) {
-        Sprint s = Modules.get().get(Sprint.class);
-
-        return !s.rageSprint() || s.unsprintInWater() && isInWater();
+    @ModifyReturnValue(method = {"shouldStopRunSprinting", "shouldStopSwimSprinting"}, at = @At("RETURN"))
+    private boolean stopAutomaticSprint(boolean original) {
+        Sprint sprint = Modules.get().get(Sprint.class);
+        if (!sprint.isActive()) return original;
+        if (!sprint.allowsEnvironment()) return true;
+        return sprint.rageSprint() ? !sprint.shouldSprint() : original;
     }
 
     // Rotations

@@ -222,6 +222,12 @@ public class SchematicCommand extends Command {
     }
 
     public boolean hasReadySchematic() { return mc.player != null && mc.level != null && schematic != null && !loading && !scanning; }
+    public boolean isLoading() { return loading || scanning; }
+    public boolean isPaused() { return builderActive() && process().isPaused(); }
+    public String loadedFilename() { return schematic == null ? "" : filename; }
+    public String dimensionsText() {
+        return schematic == null ? "No schematic loaded" : "%d wide x %d high x %d long".formatted(schematic.widthX(), schematic.heightY(), schematic.lengthZ());
+    }
     public boolean isBuilding() { return builderActive(); }
     public String notice() { return notice; }
     public boolean noticeError() { return noticeError; }

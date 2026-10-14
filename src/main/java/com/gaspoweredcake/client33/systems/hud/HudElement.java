@@ -22,6 +22,7 @@ public abstract class HudElement implements Snapper.Element, ISerializable<HudEl
     public final HudBox box = new HudBox(this);
 
     public boolean autoAnchors = true;
+    public boolean pinned;
     public int x, y;
 
     public HudElement(HudElementInfo<?> info) {
@@ -43,6 +44,7 @@ public abstract class HudElement implements Snapper.Element, ISerializable<HudEl
 
     @Override
     public void setPos(int x, int y) {
+        if (pinned) return;
         if (autoAnchors) {
             box.setPos(x, y);
             box.xAnchor = XAnchor.Left;
@@ -57,6 +59,7 @@ public abstract class HudElement implements Snapper.Element, ISerializable<HudEl
 
     @Override
     public void move(int deltaX, int deltaY) {
+        if (pinned) return;
         box.move(deltaX, deltaY);
         updatePos();
     }
@@ -119,6 +122,7 @@ public abstract class HudElement implements Snapper.Element, ISerializable<HudEl
 
         tag.putString("name", info.name);
         tag.putBoolean("active", active);
+        tag.putBoolean("pinned", pinned);
 
         tag.put("settings", settings.toTag());
         tag.put("box", box.toTag());
@@ -130,6 +134,7 @@ public abstract class HudElement implements Snapper.Element, ISerializable<HudEl
 
     @Override
     public HudElement fromTag(CompoundTag tag) {
+        pinned = tag.getBooleanOr("pinned", false);
         settings.reset();
 
         tag.getBoolean("active").ifPresent(active1 -> active = active1);

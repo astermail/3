@@ -56,20 +56,20 @@ public final class SurvivalBaritone implements AutoCloseable {
         return baritone.getPathingControlManager().mostRecentInControl().filter(p -> p.isActive() && !p.isTemporary() && p != owned).isPresent();
     }
     public void mine(Object key, Block[] blocks, Integer depth) {
-        if (key.equals(target)) return;
+        if (key.equals(target) && owned != null && owned.isActive()) return;
         stop(); var s = BaritoneAPI.getSettings(); set(s.legitMine, depth != null); if (depth != null) set(s.legitMineYLevel, depth); target = key; owned = baritone.getMineProcess(); baritone.getMineProcess().mine(blocks);
     }
     public void travel(BlockPos pos) {
-        if (pos.equals(target)) return;
+        if (pos.equals(target) && owned != null && owned.isActive()) return;
         stop(); target = pos.immutable(); owned = baritone.getCustomGoalProcess(); baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(pos, 1));
     }
     public void collect(BlockPos pos) {
         var goal = new GoalBlock(pos);
-        if (goal.equals(target)) return;
+        if (goal.equals(target) && owned != null && owned.isActive()) return;
         stop(); target = goal; owned = baritone.getCustomGoalProcess(); baritone.getCustomGoalProcess().setGoalAndPath(goal);
     }
     public void follow(Entity entity) {
-        if (entity.getUUID().equals(target)) return;
+        if (entity.getUUID().equals(target) && owned != null && owned.isActive()) return;
         stop(); target = entity.getUUID(); owned = baritone.getFollowProcess(); baritone.getFollowProcess().follow(candidate -> candidate == entity);
     }
     public void stop() {

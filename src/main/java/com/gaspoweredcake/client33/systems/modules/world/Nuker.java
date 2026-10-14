@@ -25,6 +25,10 @@ import com.gaspoweredcake.client33.utils.player.Rotations;
 import com.gaspoweredcake.client33.utils.render.RenderUtils;
 import com.gaspoweredcake.client33.utils.render.color.SettingColor;
 import com.gaspoweredcake.client33.utils.world.BlockIterator;
+import com.gaspoweredcake.client33.utils.world.MiningQueue;
+import com.gaspoweredcake.client33.utils.world.PacketMiningProgress;
+import com.gaspoweredcake.client33.utils.combat.CombatTelemetry;
+import net.minecraft.world.level.block.state.BlockState;
 import com.gaspoweredcake.client33.utils.world.BlockUtils;
 import meteordevelopment.orbit.EventHandler;
 import meteordevelopment.orbit.EventPriority;
@@ -53,6 +57,19 @@ public class Nuker extends Module {
 
     // General
 
+    private final Setting<Selection> selection = sgGeneral.add(new EnumSetting.Builder<Selection>()
+        .name("selection").description("Selected Block waits for a right-click; Area mines every allowed block.")
+        .defaultValue(Selection.SelectedBlock).onChanged(value -> resetMining()).build());
+    private final Setting<Integer> mineDelay = sgGeneral.add(new IntSetting.Builder()
+        .name("mine-delay-ms").description("Minimum delay between completed blocks, in milliseconds.")
+        .defaultValue(100).range(0, 5000).sliderMax(500).build());
+    private final Setting<Boolean> distanceCheck = sgGeneral.add(new BoolSetting.Builder()
+        .name("distance-check").description("Restrict targets to the player's normal block interaction reach.")
+        .defaultValue(true).build());
+    private final Setting<Boolean> silent = sgGeneral.add(new BoolSetting.Builder()
+        .name("silent").description("Rotate server-side only; disable to turn the camera toward the block.")
+        .defaultValue(true).visible(this::rotating).build());
+
     private final Setting<Shape> shape = sgGeneral.add(new EnumSetting.Builder<Shape>()
         .name("shape")
         .description("The shape of nuking algorithm.")
@@ -63,69 +80,69 @@ public class Nuker extends Module {
     private final Setting<Mode> mode = sgGeneral.add(new EnumSetting.Builder<Mode>()
         .name("mode")
         .description("The way the blocks are broken.")
-        .defaultValue(Mode.Flatten)
+        .defaultValue(Mode.All)
         .build()
     );
 
     private final Setting<Double> range = sgGeneral.add(new DoubleSetting.Builder()
         .name("range")
-        .description("The break range.")
+        .description("Maximum scan distance in blocks.")
         .defaultValue(4)
-        .min(0)
+        .range(0, 16)
         .visible(() -> shape.get() != Shape.Cube)
         .build()
     );
 
     private final Setting<Integer> range_up = sgGeneral.add(new IntSetting.Builder()
         .name("up")
-        .description("The break range.")
+        .description("Maximum scan distance in blocks.")
         .defaultValue(1)
-        .min(0)
+        .range(0, 16)
         .visible(() -> shape.get() == Shape.Cube)
         .build()
     );
 
     private final Setting<Integer> range_down = sgGeneral.add(new IntSetting.Builder()
         .name("down")
-        .description("The break range.")
+        .description("Maximum scan distance in blocks.")
         .defaultValue(1)
-        .min(0)
+        .range(0, 16)
         .visible(() -> shape.get() == Shape.Cube)
         .build()
     );
 
     private final Setting<Integer> range_left = sgGeneral.add(new IntSetting.Builder()
         .name("left")
-        .description("The break range.")
+        .description("Maximum scan distance in blocks.")
         .defaultValue(1)
-        .min(0)
+        .range(0, 16)
         .visible(() -> shape.get() == Shape.Cube)
         .build()
     );
 
     private final Setting<Integer> range_right = sgGeneral.add(new IntSetting.Builder()
         .name("right")
-        .description("The break range.")
+        .description("Maximum scan distance in blocks.")
         .defaultValue(1)
-        .min(0)
+        .range(0, 16)
         .visible(() -> shape.get() == Shape.Cube)
         .build()
     );
 
     private final Setting<Integer> range_forward = sgGeneral.add(new IntSetting.Builder()
         .name("forward")
-        .description("The break range.")
+        .description("Maximum scan distance in blocks.")
         .defaultValue(1)
-        .min(0)
+        .range(0, 16)
         .visible(() -> shape.get() == Shape.Cube)
         .build()
     );
 
     private final Setting<Integer> range_back = sgGeneral.add(new IntSetting.Builder()
         .name("back")
-        .description("The break range.")
+        .description("Maximum scan distance in blocks.")
         .defaultValue(1)
-        .min(0)
+        .range(0, 16)
         .visible(() -> shape.get() == Shape.Cube)
         .build()
     );
@@ -141,7 +158,8 @@ public class Nuker extends Module {
 
     private final Setting<Integer> delay = sgGeneral.add(new IntSetting.Builder()
         .name("delay")
-        .description("Delay in ticks between breaking blocks.")
+        .range(0, 100)
+        .description("Legacy tick delay between completed blocks; combined with mine-delay-ms using the larger delay.")
         .defaultValue(0)
         .build()
     );
@@ -150,7 +168,7 @@ public class Nuker extends Module {
         .name("max-blocks-per-tick")
         .description("Maximum blocks to try to break per tick. Useful when insta mining.")
         .defaultValue(1)
-        .min(1)
+        .range(1, 64)
         .build()
     );
 
@@ -251,14 +269,14 @@ public class Nuker extends Module {
     );
 
     private final Setting<SettingColor> sideColorBox = sgRender.add(new ColorSetting.Builder()
-        .name("side-color")
+        .name("bounding-side-color")
         .description("The side color of the bounding box.")
         .defaultValue(new SettingColor(16, 106, 144, 100))
         .build()
     );
 
     private final Setting<SettingColor> lineColorBox = sgRender.add(new ColorSetting.Builder()
-        .name("line-color")
+        .name("bounding-line-color")
         .description("The line color of the bounding box.")
         .defaultValue(new SettingColor(16, 106, 144, 255))
         .build()
@@ -298,11 +316,16 @@ public class Nuker extends Module {
     private final List<BlockPos> blocks = new ArrayList<>();
     private final Set<BlockPos> interacted = new ObjectOpenHashSet<>();
 
-    private boolean firstBlock;
-    private final BlockPos.MutableBlockPos lastBlockPos = new BlockPos.MutableBlockPos();
-
-    private int timer;
-    private int noBlockTimer;
+    private final MiningQueue<BlockPos> mining = new MiningQueue<>();
+    private final PacketMiningProgress packetProgress = new PacketMiningProgress();
+    private BlockPos packetTarget;
+    private Block selectedBlock;
+    private BlockState targetState;
+    private long generation;
+    private boolean ownsBreaking;
+    private Object miningLevel, miningPlayer;
+    private boolean boundsReady;
+    private String status = "Ready";
 
     private final BlockPos.MutableBlockPos pos1 = new BlockPos.MutableBlockPos(); // Rendering for cubes
     private final BlockPos.MutableBlockPos pos2 = new BlockPos.MutableBlockPos();
@@ -313,17 +336,59 @@ public class Nuker extends Module {
         super(Categories.World, "nuker", "Breaks blocks around you.");
     }
 
+    private boolean rotating() { return rotate.get(); }
+
     @Override
     public void onActivate() {
-        firstBlock = true;
-        timer = 0;
-        noBlockTimer = 0;
-        interacted.clear();
+        selectedBlock = null;
+        resetMining();
+        miningLevel = mc.level;
+        miningPlayer = mc.player;
+        status = selection.get() == Selection.SelectedBlock ? "Right-click a block to select its type" : "Searching";
+        if (selection.get() == Selection.SelectedBlock) info(status);
+    }
+
+    @Override
+    public void onDeactivate() {
+        resetMining();
+        selectedBlock = null;
+        miningLevel = miningPlayer = null;
+    }
+
+    private void resetMining() {
+        generation++;
+        if (mining != null) mining.reset();
+        targetState = null;
+        if (blocks != null) blocks.clear();
+        if (interacted != null) interacted.clear();
+        boundsReady = false;
+        stopMining();
+    }
+
+    private void stopMining() {
+        boolean sameWorld = mc.level == miningLevel && mc.player == miningPlayer;
+        if (sameWorld && packetTarget != null && mc.gameMode != null && mc.level != null && mc.getConnection() != null) {
+            BlockPos abandoned = packetTarget;
+            mc.gameMode.startPrediction(mc.level, sequence -> new ServerboundPlayerActionPacket(
+                ServerboundPlayerActionPacket.Action.ABORT_DESTROY_BLOCK, abandoned, BlockUtils.getDirection(abandoned), sequence));
+        }
+        packetTarget = null;
+        if (packetProgress != null) packetProgress.reset();
+        if (sameWorld && ownsBreaking && mc.gameMode != null) {
+            BlockUtils.breaking = false;
+            mc.gameMode.stopDestroyBlock();
+        }
+        ownsBreaking = false;
+    }
+
+    @Override
+    public String getInfoString() {
+        return selectedBlock == null ? status : Names.get(selectedBlock) + " / " + status;
     }
 
     @EventHandler
     private void onRender(Render3DEvent event) {
-        if (enableRenderBounding.get()) {
+        if (boundsReady && enableRenderBounding.get()) {
             // Render bounding box if cube and should break stuff
             if (shape.get() != Shape.Sphere && mode.get() != Mode.Smash) {
                 int minX = Math.min(pos1.getX(), pos2.getX());
@@ -339,31 +404,57 @@ public class Nuker extends Module {
 
     @EventHandler
     private void onMouseClick(MouseClickEvent event) {
-        if (event.action == KeyAction.Press) addTargetedBlockToList();
+        if (event.action != KeyAction.Press || !Utils.canUpdate() || mc.gui.screen() != null) return;
+        if (selection.get() == Selection.SelectedBlock && event.button() == 1
+            && mc.hitResult instanceof BlockHitResult hit && hit.getType() == HitResult.Type.BLOCK) {
+            Block block = mc.level.getBlockState(hit.getBlockPos()).getBlock();
+            resetMining();
+            selectedBlock = block;
+            status = "Searching";
+            info("Selected %s", Names.get(block));
+            event.cancel();
+        } else if (selectBlockBind.get().matches(event.input)) addTargetedBlockToList();
     }
 
     @EventHandler
     private void onKey(KeyInputEvent event) {
-        if (event.action == KeyAction.Press) addTargetedBlockToList();
+        if (event.action == KeyAction.Press && selectBlockBind.get().matches(event.input)) addTargetedBlockToList();
     }
 
     @EventHandler
     private void onTickPre(TickEvent.Pre event) {
         blocks.clear();
-        if (!Utils.canUpdate()) return;
-
-        // Update timer
-        if (timer > 0) {
-            timer--;
+        if (!Utils.canUpdate() || mc.gameMode == null) return;
+        if (mc.level != miningLevel || mc.player != miningPlayer) {
+            resetMining();
+            miningLevel = mc.level;
+            miningPlayer = mc.player;
+        }
+        if (mc.gui.screen() != null || mc.player.isUsingItem() || !mc.player.isAlive()) {
+            generation++;
+            mining.reset();
+            targetState = null;
+            stopMining();
+            status = "Paused";
             return;
         }
+        if (selection.get() == Selection.SelectedBlock && selectedBlock == null) {
+            status = "Right-click a block to select its type";
+            return;
+        }
+        if (mining.target() != null && targetState != null && !mc.level.getBlockState(mining.target()).equals(targetState)) {
+            mining.completed(CombatTelemetry.now(), delayMillis());
+            targetState = null;
+            stopMining();
+        }
+        final long session = generation;
+        final var level = mc.level;
+        final var player = mc.player;
 
         // Calculate some stuff
         double pX = mc.player.getX(), pY = mc.player.getY(), pZ = mc.player.getZ();
         double rangeSq = Math.pow(range.get(), 2);
         BlockPos playerBlockPos = mc.player.blockPosition();
-
-        if (shape.get() == Shape.UniformCube) range.set((double) Math.round(range.get()));
 
         double pX_ = pX;
         double pZ_ = pZ;
@@ -411,10 +502,12 @@ public class Nuker extends Module {
         // Flatten
         if (mode.get() == Mode.Flatten) pos1.setY((int) Math.floor(pY + 0.5));
 
+        boundsReady = true;
         AABB box = new AABB(Vec3.atCenterOf(pos1), Vec3.atCenterOf(pos2));
 
         // Find blocks to break
         BlockIterator.register(Math.max((int) Math.ceil(range.get() + 1), maxh), Math.max((int) Math.ceil(range.get()), maxv), (blockPos, blockState) -> {
+            if (!isActive() || generation != session || mc.level != level || mc.player != player) return;
             Vec3 center = Vec3.atCenterOf(blockPos);
             switch (shape.get()) {
                 case Sphere -> {
@@ -436,22 +529,7 @@ public class Nuker extends Module {
             // Smash
             if (mode.get() == Mode.Smash && blockState.getDestroySpeed(mc.level, blockPos) != 0) return;
 
-            // Use only optimal tools
-            if (suitableTools.get() && !interact.get() && !mc.player.getMainHandItem().isCorrectToolForDrops(blockState))
-                return;
-
-            // Block must be breakable
-            if (blockState.isAir()) return;
-            if (!BlockUtils.canBreak(blockPos, blockState) && !interact.get()) return;
-
-            // Raycast to block
-            if (isOutOfRange(blockPos)) return;
-
-            // Check whitelist or blacklist
-            boolean blockInList = (listMode.get() == ListMode.Whitelist ? whitelist.get() : blacklist.get()).contains(blockState.getBlock());
-            if (!listMode.get().allows(blockInList)) return;
-
-            if (interact.get() && interacted.contains(blockPos)) return;
+            if (!eligible(blockPos, blockState)) return;
 
             // Add block
             blocks.add(blockPos.immutable());
@@ -459,6 +537,7 @@ public class Nuker extends Module {
 
         // Break block if found
         BlockIterator.after(() -> {
+            if (!isActive() || generation != session || mc.level != level || mc.player != player || mc.gui.screen() != null) return;
             // Sort blocks
             if (sortMode.get() == SortMode.TopDown)
                 blocks.sort(Comparator.comparingDouble(value -> -value.getY()));
@@ -468,51 +547,57 @@ public class Nuker extends Module {
             else if (sortMode.get() != SortMode.None)
                 blocks.sort(Comparator.comparingDouble(value -> Utils.squaredDistance(pX, pY, pZ, value.getX() + 0.5, value.getY() + 0.5, value.getZ() + 0.5) * (sortMode.get() == SortMode.Closest ? 1 : -1)));
 
-            // Check if some block was found
             if (blocks.isEmpty()) {
-                interacted.clear();
-                // If no block was found for long enough then set firstBlock flag to true to not wait before breaking another again
-                if (noBlockTimer++ >= delay.get()) firstBlock = true;
+                mining.choose(blocks, CombatTelemetry.now());
+                targetState = null;
+                stopMining();
+                status = "No matching reachable blocks";
                 return;
-            } else {
-                noBlockTimer = 0;
             }
-
-            // Update timer
-            if (!firstBlock && !lastBlockPos.equals(blocks.getFirst())) {
-                timer = delay.get();
-
-                firstBlock = false;
-                lastBlockPos.set(blocks.getFirst());
-
-                if (timer > 0) return;
+            for (int count = 0; count < maxBlocksPerTick.get(); count++) {
+                BlockPos target = mining.choose(blocks, CombatTelemetry.now());
+                if (target == null) { status = "Waiting for mine delay"; return; }
+                targetState = mc.level.getBlockState(target);
+                status = interact.get() ? "Interacting" : "Mining";
+                Runnable action = () -> {
+                    if (!isActive() || session != generation || mc.level != level || mc.player != player
+                        || mc.gui.screen() != null || mc.player.isUsingItem() || !target.equals(mining.target())) return;
+                    mineTarget(target);
+                };
+                if (rotate.get()) {
+                    Rotations.rotate(Rotations.getYaw(target), Rotations.getPitch(target), 0, !silent.get(), action);
+                    return;
+                }
+                action.run();
+                if (mining.target() != null) return;
+                blocks.remove(target);
             }
-
-            // Break
-            int count = 0;
-
-            for (BlockPos block : blocks) {
-                if (count >= maxBlocksPerTick.get()) break;
-
-                boolean canInstaMine = BlockUtils.canInstaBreak(block);
-                boolean usePacket = packetMine.get() && (packetStrategy.get() == PacketStrategy.Always || canInstaMine);
-
-                if (rotate.get())
-                    Rotations.rotate(Rotations.getYaw(block), Rotations.getPitch(block), () -> breakBlock(block, usePacket));
-                else breakBlock(block, usePacket);
-
-                if (enableRenderBreaking.get())
-                    RenderUtils.renderTickingBlock(block, sideColor.get(), lineColor.get(), shapeModeBreak.get(), 0, 8, true, false);
-                lastBlockPos.set(block);
-
-                count++;
-                if (!interact.get() && !canInstaMine && !usePacket)
-                    break;
-            }
-
-            firstBlock = false;
-
         });
+    }
+
+    private long delayMillis() { return Math.max(mineDelay.get(), delay.get() * 50L); }
+
+    private boolean eligible(BlockPos pos, BlockState state) {
+        if (state.isAir() || !mc.level.hasChunk(pos.getX() >> 4, pos.getZ() >> 4)) return false;
+        if (selection.get() == Selection.SelectedBlock && state.getBlock() != selectedBlock) return false;
+        if (!interact.get() && !BlockUtils.canBreak(pos, state)) return false;
+        if (suitableTools.get() && !interact.get() && state.requiresCorrectToolForDrops() && !mc.player.hasCorrectToolForDrops(state)) return false;
+        if (isOutOfRange(pos)) return false;
+        boolean listed = (listMode.get() == ListMode.Whitelist ? whitelist.get() : blacklist.get()).contains(state.getBlock());
+        return listMode.get().allows(listed) && (!interact.get() || !interacted.contains(pos));
+    }
+
+    private void mineTarget(BlockPos target) {
+        BlockState state = mc.level.getBlockState(target);
+        if (!eligible(target, state) || !state.equals(targetState)) return;
+        boolean instant = BlockUtils.canInstaBreak(target);
+        boolean usePacket = packetMine.get() && (packetStrategy.get() == PacketStrategy.Always || instant);
+        breakBlock(target, usePacket);
+        if (enableRenderBreaking.get()) RenderUtils.renderTickingBlock(target, sideColor.get(), lineColor.get(), shapeModeBreak.get(), 0, 8, true, false);
+        if (interact.get() || !mc.level.getBlockState(target).equals(state)) {
+            mining.completed(CombatTelemetry.now(), delayMillis());
+            targetState = null;
+        }
     }
 
     private void breakBlock(BlockPos blockPos, boolean usePacket) {
@@ -521,16 +606,27 @@ public class Nuker extends Module {
             BlockUtils.interact(new BlockHitResult(Vec3.atCenterOf(blockPos), BlockUtils.getDirection(blockPos), blockPos, true), InteractionHand.MAIN_HAND, swing.get());
             interacted.add(blockPos);
         } else if (usePacket) {
-            // Packet mine mode
-            mc.gameMode.startPrediction(mc.level, sequence -> new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK, blockPos, BlockUtils.getDirection(blockPos), sequence));
-
+            // Keep hardness progress across ticks. A hard block must not receive an
+            // immediate STOP on every tick; servers reject that as an unfinished break.
+            if (!blockPos.equals(packetTarget)) {
+                stopMining();
+                packetTarget = blockPos.immutable();
+            }
+            long now = CombatTelemetry.now();
+            if (packetProgress.start(now)) {
+                mc.gameMode.startPrediction(mc.level, sequence -> new ServerboundPlayerActionPacket(
+                    ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK, blockPos, BlockUtils.getDirection(blockPos), sequence));
+            }
+            if (packetProgress.advance(mc.player.isCreative() ? 1 : mc.level.getBlockState(blockPos).getDestroyProgress(mc.player, mc.level, blockPos), now)) {
+                mc.gameMode.startPrediction(mc.level, sequence -> new ServerboundPlayerActionPacket(
+                    ServerboundPlayerActionPacket.Action.STOP_DESTROY_BLOCK, blockPos, BlockUtils.getDirection(blockPos), sequence));
+            }
             if (swing.get()) mc.player.swing(InteractionHand.MAIN_HAND);
             else mc.getConnection().send(new ServerboundSwingPacket(InteractionHand.MAIN_HAND));
-
-            mc.gameMode.startPrediction(mc.level, sequence -> new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.STOP_DESTROY_BLOCK, blockPos, BlockUtils.getDirection(blockPos), sequence));
         } else {
             // Legit mine mode
-            BlockUtils.breakBlock(blockPos, swing.get());
+            if (packetTarget != null) stopMining();
+            ownsBreaking = BlockUtils.breakBlock(blockPos, swing.get());
         }
     }
 
@@ -540,7 +636,7 @@ public class Nuker extends Module {
         double x = Mth.clamp(eye.x, blockPos.getX(), blockPos.getX() + 1);
         double y = Mth.clamp(eye.y, blockPos.getY(), blockPos.getY() + 1);
         double z = Mth.clamp(eye.z, blockPos.getZ(), blockPos.getZ() + 1);
-        if (eye.distanceToSqr(x, y, z) > reach * reach) return true;
+        if (distanceCheck.get() && eye.distanceToSqr(x, y, z) > reach * reach) return true;
 
         Vec3 pos = Vec3.atCenterOf(blockPos);
         ClipContext clipContext = new ClipContext(eye, pos, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, mc.player);
@@ -552,7 +648,7 @@ public class Nuker extends Module {
     }
 
     private void addTargetedBlockToList() {
-        if (!selectBlockBind.get().isPressed() || mc.gui.screen() != null) return;
+        if (!Utils.canUpdate() || mc.gui.screen() != null) return;
 
         HitResult hitResult = mc.hitResult;
         if (hitResult == null || hitResult.getType() != HitResult.Type.BLOCK) return;
@@ -574,8 +670,10 @@ public class Nuker extends Module {
 
     @EventHandler(priority = EventPriority.HIGHEST)
     private void onBlockBreakingCooldown(BlockBreakingCooldownEvent event) {
-        event.cooldown = 0;
+        if (ownsBreaking) event.cooldown = 0;
     }
+
+    public enum Selection { SelectedBlock, Area }
 
     public enum Mode {
         All,

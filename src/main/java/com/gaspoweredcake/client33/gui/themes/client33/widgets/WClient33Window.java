@@ -23,9 +23,9 @@ public class WClient33Window extends WWindow implements Client33Widget {
 
     @Override
     protected void onRender(GuiRenderer renderer, double mouseX, double mouseY, double delta) {
-        double line = theme.scale(1), radius = theme.scale(14);
+        double line = theme.scale(1), radius = theme.scale(theme().cornerRadius.get());
         renderer.roundedQuad(x, y, width, height, radius, theme().outline(false, false));
-        renderer.roundedQuad(x + line, y + line, width - line * 2, height - line * 2, radius - line, theme().surface());
+        renderer.roundedQuad(x + line, y + line, width - line * 2, height - line * 2, Math.max(0, radius - line), theme().surface());
     }
 
     private class WClient33Header extends WHeader {
@@ -35,7 +35,7 @@ public class WClient33Window extends WWindow implements Client33Widget {
 
         @Override
         protected void onRender(GuiRenderer renderer, double mouseX, double mouseY, double delta) {
-            double radius = theme.scale(12);
+            double radius = theme.scale(theme().cornerRadius.get());
             renderer.roundedQuad(x + theme.scale(3), y + theme.scale(3), width - theme.scale(6), height - theme.scale(6), radius,
                 theme().euphoric() ? new Color(29, 32, 49) : theme().moduleSurface());
         }

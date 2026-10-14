@@ -35,18 +35,50 @@ public class PathManagerTab extends Tab {
             PathManagers.get().getSettings().get().onActivated();
         }
 
+        private String query = "";
+        private boolean advanced;
+        private com.gaspoweredcake.client33.gui.widgets.containers.WContainer content;
+
         @Override
         public void initWidgets() {
-            WTextBox filter = add(theme.textBox("")).minWidth(400).expandX().widget();
-            filter.setFocused(true);
-            filter.action = () -> {
-                clear();
-
-                add(filter);
-                add(theme.settings(PathManagers.get().getSettings().get(), filter.get().trim())).expandX();
+            double width = Math.max(220, Math.min(560, com.gaspoweredcake.client33.utils.Utils.getWindowWidth() / theme.scale(1) - 80));
+            add(theme.label("Navigation & building", true));
+            add(theme.label("Tune movement here. Import and build files in Schematics.", width).color(theme.textSecondaryColor()));
+            var actions = add(theme.horizontalList()).expandX().widget();
+            actions.add(theme.button("Open schematics...")).expandX().widget().action = () -> {
+                for (var destination : com.gaspoweredcake.client33.gui.tabs.Tabs.get())
+                    if (destination instanceof SchematicsTab) { destination.openScreen(theme); return; }
             };
+            var filter = add(theme.textBox(query, "Search all Baritone settings...")).minWidth(width).expandX().widget();
+            filter.action = () -> { query = filter.get(); refresh(); };
+            var options = add(theme.horizontalList()).expandX().widget();
+            var all = options.add(theme.checkbox(advanced)).widget();
+            options.add(theme.label("Show advanced settings"));
+            all.action = () -> { advanced = all.checked; refresh(); };
+            content = add(theme.verticalList()).expandX().widget();
+            refresh();
+        }
 
-            add(theme.settings(PathManagers.get().getSettings().get(), filter.get().trim())).expandX();
+        private void refresh() {
+            content.clear();
+            var source = PathManagers.get().getSettings().get();
+            if (advanced || !query.isBlank()) {
+                content.add(new com.gaspoweredcake.client33.gui.widgets.containers.WSettingsWorkspace(source, query.strip())).expandX();
+                return;
+            }
+            var curated = new com.gaspoweredcake.client33.settings.Settings();
+            addGroup(curated, "Movement", "allowSprint", "allowParkour", "allowParkourPlace", "allowWaterBucketFall", "maxFallHeightNoWater", "allowVines");
+            addGroup(curated, "Blocks & building", "allowBreak", "allowPlace", "allowInventory", "buildInLayers", "layerOrder", "buildRepeatCount");
+            addGroup(curated, "Path display", "renderPath", "renderGoal", "renderSelectionBoxes");
+            content.add(new com.gaspoweredcake.client33.gui.widgets.containers.WSettingsWorkspace(curated, "")).expandX();
+        }
+
+        private void addGroup(com.gaspoweredcake.client33.settings.Settings target, String title, String... names) {
+            var group = target.createGroup(title, true);
+            for (String name : names) {
+                var setting = PathManagers.get().getSettings().get().get(name);
+                if (setting != null) group.add(setting);
+            }
         }
 
         @Override

@@ -44,7 +44,7 @@ public abstract class WSlider extends WWidget {
 
     @Override
     public boolean onMouseClicked(MouseButtonEvent click, boolean doubled) {
-        if (mouseOver && !doubled) {
+        if (mouseOver && !doubled && click.button() == 0 && width > handleSize() && max > min) {
             valueAtDragStart = value;
             double handleSize = handleSize();
 
@@ -107,13 +107,14 @@ public abstract class WSlider extends WWidget {
 
     @Override
     public boolean onMouseReleased(MouseButtonEvent click) {
-        if (dragging) {
-            if (value != valueAtDragStart && actionOnRelease != null) {
+        if (dragging && click.button() == 0) {
+            boolean changed = value != valueAtDragStart;
+            dragging = false;
+            setFocused(false);
+            if (changed && actionOnRelease != null) {
                 actionOnRelease.run();
             }
 
-            dragging = false;
-            setFocused(false);
             return true;
         }
 
@@ -132,14 +133,18 @@ public abstract class WSlider extends WWidget {
             scrollHandleMouseOver = true;
         }
 
-        if (scrollHandleMouseOver) {
+        if (scrollHandleMouseOver && !dragging) {
+            double before = value;
             if (parent instanceof WIntEdit) {
                 set(value + amount);
             } else {
                 set(value + 0.05 * amount);
             }
 
-            if (action != null) action.run();
+            if (value != before) {
+                if (action != null) action.run();
+                if (actionOnRelease != null) actionOnRelease.run();
+            }
             return true;
         }
 
@@ -147,7 +152,7 @@ public abstract class WSlider extends WWidget {
     }
 
     public void set(double value) {
-        this.value = Mth.clamp(value, min, max);
+        if (Double.isFinite(value)) this.value = Mth.clamp(value, min, max);
     }
 
     public double get() {
@@ -155,6 +160,7 @@ public abstract class WSlider extends WWidget {
     }
 
     protected double valueWidth() {
+        if (max <= min || width <= handleSize()) return 0;
         double valuePercentage = (value - min) / (max - min);
         return valuePercentage * (width - handleSize());
     }

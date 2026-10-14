@@ -121,14 +121,14 @@ public class GuiRenderer implements com.gaspoweredcake.client33.gui.utils.Rounde
         rTex.render("u_Texture", TEXTURE.getTextureView(), TEXTURE.getSampler());
 
         // Normal text
-        theme.textRenderer().begin(graphics, theme.scale(1));
+        theme.textRenderer().begin(graphics, theme.scale(theme.fontScale()));
         for (TextOperation text : texts) {
             if (!text.title) text.run(textPool);
         }
         theme.textRenderer().end();
 
         // Title text
-        theme.textRenderer().begin(graphics, theme.scale(1.25));
+        theme.textRenderer().begin(graphics, theme.scale(1.25 * theme.fontScale()));
         for (TextOperation text : texts) {
             if (text.title) text.run(textPool);
         }
@@ -140,20 +140,14 @@ public class GuiRenderer implements com.gaspoweredcake.client33.gui.utils.Rounde
     }
 
     public void scissorStart(double x, double y, double width, double height) {
+        Scissor parent = scissorStack.isEmpty() ? null : scissorStack.top();
         if (!scissorStack.isEmpty()) {
-            Scissor parent = scissorStack.top();
-
-            if (x < parent.x) x = parent.x;
-            else if (x + width > parent.x + parent.width) width -= (x + width) - (parent.x + parent.width);
-
-            if (y < parent.y) y = parent.y;
-            else if (y + height > parent.y + parent.height) height -= (y + height) - (parent.y + parent.height);
-
             endRender(parent);
         }
 
-        scissorStack.push(scissorPool.get().set(x, y, width, height));
-        graphics.enableScissor((int) x, (int) y, (int) (x + width), (int) (y + height));
+        Scissor clip = scissorPool.get().intersect(x, y, width, height, parent);
+        scissorStack.push(clip);
+        graphics.enableScissor(clip.x, clip.y, clip.x + clip.width, clip.y + clip.height);
 
         beginRender();
     }

@@ -79,8 +79,17 @@ public final class ModuleLogicRegression {
         check(bounds.clip(800, 600), "A rejected entity must not poison the next entity");
         SchematicRegression.run();
         GuiRegression.run();
+        RuntimeUiRegression.run();
         FeatureRegression.run();
+        StashRegression.run();
+        ClientRepairRegression.run();
+        RenderRegression.run();
+        KillAuraRegression.run();
+        SearchRegression.run();
+        SprintRegression.run();
         SurvivalRegression.run();
+        NukerRegression.run();
+        AutoClickerRegression.run();
         System.out.println("Module logic regressions passed.");
     }
 

@@ -267,6 +267,7 @@ public abstract class WidgetScreen extends Screen {
     }
 
     public void renderCustom(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
+        long renderStarted = System.nanoTime();
         int s = mc.getWindow().getGuiScale();
         mouseX *= s;
         mouseY *= s;
@@ -307,6 +308,7 @@ public abstract class WidgetScreen extends Screen {
         Utils.scaledProjection();
 
         runAfterRenderTasks();
+        com.gaspoweredcake.client33.gui.runtime.MenuMetrics.record(System.nanoTime() - renderStarted);
     }
 
     protected void runAfterRenderTasks() {
@@ -382,7 +384,7 @@ public abstract class WidgetScreen extends Screen {
         action.accept(widget);
 
         if (widget instanceof WContainer wContainer) {
-            for (Cell<?> cell : wContainer.cells) loopWidgets(cell.widget(), action);
+            for (Cell<?> cell : java.util.List.copyOf(wContainer.cells)) loopWidgets(cell.widget(), action);
         }
     }
 

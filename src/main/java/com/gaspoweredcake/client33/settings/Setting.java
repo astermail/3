@@ -21,7 +21,10 @@ import java.util.function.Consumer;
 public abstract class Setting<T> implements IGetter<T>, ISerializable<T> {
     private static final List<String> NO_SUGGESTIONS = List.of();
 
-    public final String name, title, description;
+    public final String name, description;
+    public String title;
+
+    public void setDisplayTitle(String title) { this.title = java.util.Objects.requireNonNull(title); }
     private final IVisible visible;
 
     protected final T defaultValue;
@@ -35,7 +38,7 @@ public abstract class Setting<T> implements IGetter<T>, ISerializable<T> {
 
     public Setting(String name, String description, T defaultValue, Consumer<T> onChanged, Consumer<Setting<T>> onModuleActivated, IVisible visible) {
         this.name = name;
-        this.title = Utils.nameToTitle(name);
+        this.title = com.gaspoweredcake.client33.gui.utils.DisplayNames.title(name);
         this.description = description;
         this.defaultValue = defaultValue;
         this.onChanged = onChanged;

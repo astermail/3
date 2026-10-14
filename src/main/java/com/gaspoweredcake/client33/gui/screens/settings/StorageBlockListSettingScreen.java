@@ -38,6 +38,7 @@ public class StorageBlockListSettingScreen extends CollectionListSettingScreen<B
         BLOCK_ENTITY_TYPE_INFO_MAP.put(BlockEntityTypes.DECORATED_POT, new BlockEntityTypeInfo(Items.DECORATED_POT, "Decorated Pot"));
         BLOCK_ENTITY_TYPE_INFO_MAP.put(BlockEntityTypes.DROPPER, new BlockEntityTypeInfo(Items.DROPPER, "Dropper"));
         BLOCK_ENTITY_TYPE_INFO_MAP.put(BlockEntityTypes.ENDER_CHEST, new BlockEntityTypeInfo(Items.ENDER_CHEST, "Ender Chest"));
+        BLOCK_ENTITY_TYPE_INFO_MAP.put(BlockEntityTypes.ENCHANTING_TABLE, new BlockEntityTypeInfo(Items.ENCHANTING_TABLE, "Enchanting Table"));
         BLOCK_ENTITY_TYPE_INFO_MAP.put(BlockEntityTypes.FURNACE, new BlockEntityTypeInfo(Items.FURNACE, "Furnace"));
         BLOCK_ENTITY_TYPE_INFO_MAP.put(BlockEntityTypes.HOPPER, new BlockEntityTypeInfo(Items.HOPPER, "Hopper"));
         BLOCK_ENTITY_TYPE_INFO_MAP.put(BlockEntityTypes.SHULKER_BOX, new BlockEntityTypeInfo(Items.SHULKER_BOX, "Shulker Box"));

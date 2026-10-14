@@ -102,13 +102,11 @@ public class MeshRenderer {
     }
 
     public MeshRenderer mesh(MeshBuilder mesh, Matrix4f matrix) {
-        this.mesh = mesh;
-        return this.transform(matrix);
+        return mesh(mesh).transform(matrix);
     }
 
     public MeshRenderer mesh(MeshBuilder mesh, PoseStack matrices) {
-        this.mesh = mesh;
-        return this.transform(matrices);
+        return mesh(mesh).transform(matrices);
     }
 
     public MeshRenderer transform(Matrix4f matrix) {
@@ -139,77 +137,70 @@ public class MeshRenderer {
     }
 
     public void end() {
-        if (mesh != null && mesh.isBuilding()) {
-            mesh.end();
-        }
+        try {
+            if (mesh != null && mesh.isBuilding()) mesh.end();
+            int indexCount = mesh != null ? mesh.getIndicesCount()
+                : (indexBuffer != null ? Math.toIntExact(indexBuffer.length() / indexType.bytes) : 0);
+            if (indexCount <= 0) return;
 
-        int indexCount = mesh != null ? mesh.getIndicesCount()
-            : (int) (indexBuffer != null ? indexBuffer.length() / indexType.bytes : -1);
-        // todo hope this is alright @minegame take a look please (lossy conversion from long to int)
-
-        if (indexCount > 0) {
-
-            if (Utils.rendering3D || matrix != null) {
-                RenderSystem.getModelViewStack().pushMatrix();
-            }
-
-            if (matrix != null) {
-                RenderSystem.getModelViewStack().mul(matrix);
-            }
-
-            if (Utils.rendering3D) {
-                applyCameraPos();
-            }
-
-            Optional<Vector4fc> clearColor = this.clearColor != null
-                ? Optional.of(this.clearColor.getVec4f())
-                : Optional.empty();
-
-            CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-            GpuBufferSlice vertexBuffer = mesh != null ? mesh.uploadVertexBuffer(encoder) : Objects.requireNonNull(this.vertexBuffer);
-            GpuBufferSlice indexBuffer = mesh != null ? mesh.uploadIndexBuffer(encoder) : Objects.requireNonNull(this.indexBuffer);
-            int firstIndex = getFirstIndex(indexBuffer);
-
-            GpuBufferSlice meshData = MeshUniforms.write(RenderUtils.projection, RenderSystem.getModelViewStack());
-
-            try (RenderPass pass = (depthAttachment != null && pipeline.wantsDepthTexture()) ?
-                encoder.createRenderPass(() -> "Client33 MeshRenderer", colorAttachment, clearColor, depthAttachment, OptionalDouble.empty()) :
-                encoder.createRenderPass(() -> "Client33 MeshRenderer", colorAttachment, clearColor)) {
-
-                pass.setPipeline(pipeline);
-                pass.setUniform("MeshData", meshData);
-
-                for (var entry : uniforms.entrySet()) {
-                    pass.setUniform(entry.getKey(), entry.getValue());
+            boolean transformed = Utils.rendering3D || matrix != null;
+            if (transformed) RenderSystem.getModelViewStack().pushMatrix();
+            try {
+                if (matrix != null) {
+                    RenderSystem.getModelViewStack().mul(matrix);
                 }
 
-                for (var entry : samplers.entrySet()) {
-                    pass.bindTexture(entry.getKey(), entry.getValue().textureView, entry.getValue().sampler);
+                if (Utils.rendering3D) {
+                    applyCameraPos();
                 }
 
-                pass.setVertexBuffer(0, vertexBuffer);
-                pass.setIndexBuffer(indexBuffer.buffer(), indexType);
-                pass.drawIndexed(indexCount, 1, firstIndex, 0, 0);
-            }
+                Optional<Vector4fc> clearColor = this.clearColor != null
+                    ? Optional.of(this.clearColor.getVec4f())
+                    : Optional.empty();
 
-            if (Utils.rendering3D || matrix != null) {
-                RenderSystem.getModelViewStack().popMatrix();
+                CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
+                GpuBufferSlice vertexBuffer = mesh != null ? mesh.uploadVertexBuffer(encoder) : Objects.requireNonNull(this.vertexBuffer);
+                GpuBufferSlice indexBuffer = mesh != null ? mesh.uploadIndexBuffer(encoder) : Objects.requireNonNull(this.indexBuffer);
+                int firstIndex = getFirstIndex(indexBuffer);
+
+                GpuBufferSlice meshData = MeshUniforms.write(RenderUtils.projection, RenderSystem.getModelViewStack());
+
+                try (RenderPass pass = (depthAttachment != null && pipeline.wantsDepthTexture()) ?
+                    encoder.createRenderPass(() -> "Client33 MeshRenderer", colorAttachment, clearColor, depthAttachment, OptionalDouble.empty()) :
+                    encoder.createRenderPass(() -> "Client33 MeshRenderer", colorAttachment, clearColor)) {
+
+                    pass.setPipeline(pipeline);
+                    pass.setUniform("MeshData", meshData);
+
+                    for (var entry : uniforms.entrySet()) {
+                        pass.setUniform(entry.getKey(), entry.getValue());
+                    }
+
+                    for (var entry : samplers.entrySet()) {
+                        pass.bindTexture(entry.getKey(), entry.getValue().textureView, entry.getValue().sampler);
+                    }
+
+                    pass.setVertexBuffer(0, vertexBuffer);
+                    pass.setIndexBuffer(indexBuffer.buffer(), indexType);
+                    pass.drawIndexed(indexCount, 1, firstIndex, 0, 0);
+                }
+            } finally {
+                if (transformed) RenderSystem.getModelViewStack().popMatrix();
             }
+        } finally {
+            colorAttachment = null;
+            depthAttachment = null;
+            clearColor = null;
+            pipeline = null;
+            mesh = null;
+            vertexBuffer = null;
+            indexBuffer = null;
+            indexType = IndexType.INT;
+            matrix = null;
+            uniforms.clear();
+            samplers.clear();
+            taken = false;
         }
-
-        colorAttachment = null;
-        depthAttachment = null;
-        clearColor = null;
-        pipeline = null;
-        mesh = null;
-        vertexBuffer = null;
-        indexBuffer = null;
-        indexType = IndexType.INT;
-        matrix = null;
-        uniforms.clear();
-        samplers.clear();
-
-        taken = false;
     }
 
     private int getFirstIndex(GpuBufferSlice indexBuffer) {

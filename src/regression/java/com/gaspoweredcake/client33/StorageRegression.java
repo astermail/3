@@ -7,6 +7,7 @@ import java.util.*;
 
 final class StorageRegression {
     static void run() {
+        rendering();
         var diamond = new ContainerSnapshot.Stack("minecraft:diamond", "Diamond", 64, 64, false, -1);
         var tool = new ContainerSnapshot.Stack("minecraft:pickaxe", "§aPick\naxe", 1, 1, true, 25);
         var slots = new ArrayList<>(Arrays.asList(diamond, diamond, tool, null));
@@ -40,6 +41,41 @@ final class StorageRegression {
         var tiny = new LabelLayout(300, 200); tiny.reserve(new LabelLayout.Rect(0, 0, 300, 200));
         check(tiny.place(150, 190, 120, 30) == null, "inspector exclusion respected");
         System.out.println("Storage observation and label regressions passed.");
+    }
+    private static void rendering() {
+        var origin = new net.minecraft.core.BlockPos(15, 64, -1);
+        var east = origin.east();
+        var pair = com.gaspoweredcake.client33.utils.storage.StorageRenderMath.bounds(origin, east, true);
+        var reversed = com.gaspoweredcake.client33.utils.storage.StorageRenderMath.bounds(east, origin, true);
+        check(pair.equals(reversed) && pair.getXsize() == 1.875 && pair.getZsize() == 0.875,
+            "Both indexed halves produce one continuous chest outline across a chunk boundary");
+        check(pair.getCenter().x == 16 && pair.maxY == 64.875, "Merged tracer anchor and chest lid height are correct");
+        var southPair = com.gaspoweredcake.client33.utils.storage.StorageRenderMath.bounds(origin, origin.south(), true);
+        check(southPair.getZsize() == 1.875 && southPair.getXsize() == 0.875, "North/south chests merge on the correct axis");
+        var single = com.gaspoweredcake.client33.utils.storage.StorageRenderMath.bounds(origin, null, true);
+        check(single.getXsize() == 0.875, "Unloaded or absent partner remains a single chest");
+        var full = com.gaspoweredcake.client33.utils.storage.StorageRenderMath.bounds(origin, null, false);
+        check(full.getXsize() == 1 && full.getYsize() == 1, "Other storage retains full block bounds");
+        check(opacity(0, 6, 64, 12) == 0 && opacity(3, 6, 64, 12) == 0.5 && opacity(6, 6, 64, 12) == 1,
+            "Near fade has smooth zero, midpoint and full-opacity boundaries");
+        check(opacity(58, 6, 64, 12) == 0.5 && opacity(64, 6, 64, 12) == 0,
+            "Far fade respects the distance cap");
+        check(opacity(1000, 0, 0, 12) == 1 && opacity(Double.NaN, 6, 64, 12) == 0,
+            "Unlimited range and invalid distances are handled explicitly");
+        var accent = new com.gaspoweredcake.client33.utils.render.color.Color(100, 200, 220, 180);
+        var faded = com.gaspoweredcake.client33.utils.storage.StorageRenderMath.faded(accent, 0.5);
+        check(faded.a == 90 && accent.a == 180, "Focused vehicles fade without mutating the configured accent");
+        var queue = new com.gaspoweredcake.client33.utils.storage.StorageRenderQueue<String>();
+        Object chest = new Object();
+        queue.add(chest, "left half", 20); queue.add(chest, "double chest", 20);
+        queue.add("vehicle", "nearby boat", 3); queue.add("barrel", "barrel", 10);
+        check(queue.nearest(2).equals(List.of("nearby boat", "barrel")), "Nearby vehicles share priority with blocks instead of being starved by the block budget");
+        check(queue.nearest(10).equals(List.of("nearby boat", "barrel", "double chest")), "A double chest consumes one overlay, label and tracer budget entry");
+        check(queue.nearest(0).isEmpty(), "Zero budget draws nothing");
+        queue.clear(); check(queue.nearest(10).isEmpty(), "World/reset clears queued overlays");
+    }
+    private static double opacity(double distance, double near, double limit, double far) {
+        return com.gaspoweredcake.client33.utils.storage.StorageRenderMath.opacity(distance, near, limit, far);
     }
     private static void check(boolean condition, String message) { if (!condition) throw new AssertionError(message); }
 }

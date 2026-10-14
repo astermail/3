@@ -33,6 +33,18 @@ public class Scissor {
         return this;
     }
 
+    /** Intersect both edges before rounding; moving the left edge must also shrink the width. */
+    public Scissor intersect(double x, double y, double width, double height, Scissor parent) {
+        double right = x + Math.max(0, width), bottom = y + Math.max(0, height);
+        if (parent != null) {
+            x = Math.max(x, parent.x);
+            y = Math.max(y, parent.y);
+            right = Math.min(right, parent.x + parent.width);
+            bottom = Math.min(bottom, parent.y + parent.height);
+        }
+        return set(x, y, Math.max(0, right - x), Math.max(0, bottom - y));
+    }
+
     public void push() {
         ((IGpuDevice) RenderSystem.getDevice()).client33$pushScissor(x, getWindowHeight() - y - height, width, height);
     }

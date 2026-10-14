@@ -15,12 +15,15 @@ import com.gaspoweredcake.client33.renderer.text.TextRenderer;
 import com.gaspoweredcake.client33.utils.combat.CombatTelemetry;
 import com.gaspoweredcake.client33.utils.storage.ContainerObservations;
 import com.gaspoweredcake.client33.utils.storage.ContainerSnapshot;
+import com.gaspoweredcake.client33.utils.storage.StorageRenderMath;
+import com.gaspoweredcake.client33.utils.storage.StorageRenderQueue;
 import com.gaspoweredcake.client33.utils.render.NametagUtils;
 import com.gaspoweredcake.client33.utils.render.LabelLayout;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.Nameable;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.EntityHitResult;
 import org.joml.Vector3d;
@@ -66,6 +69,7 @@ public class StorageESP extends Module {
     private final ContainerObservations observations = new ContainerObservations();
     private record Overlay(Object source, AABB bounds, Color color, double distance) {}
     private final List<Overlay> overlays = new ArrayList<>();
+    private final StorageRenderQueue<Overlay> candidates = new StorageRenderQueue<>();
     private final List<BlockEntity> ordered = new ArrayList<>();
     private Object focused;
     private final Setting<Boolean> labels = sgData.add(new BoolSetting.Builder().name("labels").description("Decluttered storage type, distance and observed occupancy labels.").defaultValue(true).build());
@@ -109,10 +113,14 @@ public class StorageESP extends Module {
 
     private final Setting<List<BlockEntityType<?>>> storageBlocks = sgGeneral.add(new StorageBlockListSetting.Builder()
         .name("storage-blocks")
-        .description("Select the storage blocks to display.")
+        .description("Select storage and utility blocks to display, including enchanting tables.")
         .defaultValue(StorageBlockListSetting.STORAGE_BLOCKS)
         .build()
     );
+
+    private final Setting<Boolean> boxes = sgGeneral.add(new BoolSetting.Builder()
+        .name("boxes").description("Draw container boxes or shader outlines. Disable for tracers and labels only.")
+        .defaultValue(true).build());
 
     private final Setting<Boolean> tracers = sgGeneral.add(new BoolSetting.Builder()
         .name("tracers")
@@ -196,7 +204,7 @@ public class StorageESP extends Module {
 
     private final Setting<SettingColor> other = sgGeneral.add(new ColorSetting.Builder()
         .name("other")
-        .description("The color of furnaces, dispensers, droppers and hoppers.")
+        .description("The color of other selected storage/utility blocks and container vehicles.")
         .defaultValue(new SettingColor(173, 193, 198, 210))
         .build()
     );
@@ -209,6 +217,8 @@ public class StorageESP extends Module {
         .sliderMax(12)
         .build()
     );
+
+    private final Setting<Boolean> fullHeight = sgGeneral.add(new BoolSetting.Builder().name("full-height").description("Apply range horizontally and include containers at all loaded heights, including below deepslate.").defaultValue(true).build());
 
     private final Setting<Integer> maxDistance = sgGeneral.add(new IntSetting.Builder()
         .name("max-distance")
@@ -246,40 +256,27 @@ public class StorageESP extends Module {
 
     private final Color lineColor = new Color(0, 0, 0, 0);
     private final Color sideColor = new Color(0, 0, 0, 0);
-    private boolean render;
     private int count;
 
     private final MeshBuilder mesh;
     private final MeshBuilderVertexConsumerProvider vertexConsumerProvider;
 
     public StorageESP() {
-        super(Categories.Render, "storage-esp", "Incrementally indexes loaded 26.2 containers and vehicle storage, with bounded discovery and rendering.");
+        super(Categories.Render, "storage-esp", "Incrementally indexes loaded 26.2 containers and vehicle storage, with bounded discovery and rendering.", "Chest ESP", "Container ESP");
 
         mesh = new MeshBuilder(Client33RenderPipelines.WORLD_COLORED);
         vertexConsumerProvider = new MeshBuilderVertexConsumerProvider(mesh);
     }
 
-    private void getBlockEntityColor(BlockEntity blockEntity) {
-        render = false;
-
-        if (!storageBlocks.get().contains(blockEntity.getType())) return;
-
-        if (blockEntity instanceof TrappedChestBlockEntity)
-            lineColor.set(trappedChest.get()); // Must come before ChestBlockEntity as it is the superclass of TrappedChestBlockEntity
-        else if (blockEntity instanceof ChestBlockEntity) lineColor.set(chest.get());
-        else if (blockEntity instanceof BarrelBlockEntity) lineColor.set(barrel.get());
-        else if (blockEntity instanceof ShulkerBoxBlockEntity) lineColor.set(shulker.get());
-        else if (blockEntity instanceof EnderChestBlockEntity) lineColor.set(enderChest.get());
-        else if (blockEntity instanceof AbstractFurnaceBlockEntity || blockEntity instanceof BrewingStandBlockEntity || blockEntity instanceof ChiseledBookShelfBlockEntity || blockEntity instanceof CrafterBlockEntity || blockEntity instanceof DispenserBlockEntity || blockEntity instanceof DecoratedPotBlockEntity || blockEntity instanceof HopperBlockEntity)
-            lineColor.set(other.get());
-        else return;
-
-        render = true;
-
-        if (shapeMode.get() == ShapeMode.Sides || shapeMode.get() == ShapeMode.Both) {
-            sideColor.set(lineColor);
-            sideColor.a = lineColor.a * fillOpacity.get() / 255;
-        }
+    private Color blockColor(BlockEntity entity) {
+        if (!storageBlocks.get().contains(entity.getType())) return null;
+        if (entity instanceof TrappedChestBlockEntity) return trappedChest.get();
+        if (entity instanceof ChestBlockEntity) return chest.get();
+        if (entity instanceof BarrelBlockEntity) return barrel.get();
+        if (entity instanceof ShulkerBoxBlockEntity) return shulker.get();
+        if (entity instanceof EnderChestBlockEntity) return enderChest.get();
+        // Every selected type is renderable, including campfires and enchanting tables.
+        return other.get();
     }
 
     @Override
@@ -311,105 +308,74 @@ public class StorageESP extends Module {
 
     @EventHandler
     private void onRender(Render3DEvent event) {
-        count = 0; overlays.clear();
+        count = 0;
+        overlays.clear();
+        candidates.clear();
         if (mc.level == null || mc.player == null) return;
-        Mode renderMode = mode.get();
-
         if (scanWorld != mc.level) clearCache();
-        for (BlockEntity blockEntity : ordered) {
-            if (count >= renderBudget.get()) break;
-            BlockPos livePos = blockEntity.getBlockPos();
-            if (!mc.level.hasChunk(livePos.getX() >> 4, livePos.getZ() >> 4)
-                || mc.level.getBlockEntity(livePos) != blockEntity) continue;
-            if (renderMode == Mode.Box && isSecondHalfOfDoubleChest(blockEntity)) continue;
-            // Check if the block has been interacted with (opened)
-            var snapshot = observations.snapshot(blockEntity, memorySeconds.get() * 1000L);
-            boolean interacted = snapshot != null;
-            if (interacted && hideOpened.get()) continue;  // Skip rendering if "hideOpened" is true
 
-            getBlockEntityColor(blockEntity);
-            if (!render) continue;
-
-            // Set the color to openedColor if its alpha is greater than 0
-            if (interacted && openedColor.get().a > 0) {
-                // openedColor takes precedence.
-                lineColor.set(openedColor.get());
-                sideColor.set(openedColor.get());
-                sideColor.a = lineColor.a * fillOpacity.get() / 255;
-            }
-
-            if (render) {
-                double a = opacityAt(blockEntity.getBlockPos());
-                if (a < 0.075) continue;
-
-                // Only start a mesh when there's something to render
-                if (count == 0 && mode.get() == Mode.Shader) {
-                    mesh.begin();
-                }
-
-                int prevLineA = lineColor.a;
-                int prevSideA = sideColor.a;
-
-                lineColor.a *= a;
-                sideColor.a *= a;
-
-                if (tracers.get()) {
-                    event.renderer.line(RenderUtils.center.x, RenderUtils.center.y, RenderUtils.center.z, blockEntity.getBlockPos().getX() + 0.5, blockEntity.getBlockPos().getY() + 0.5, blockEntity.getBlockPos().getZ() + 0.5, lineColor);
-                }
-
-                if (focused == ContainerObservations.canonical(blockEntity)) lineColor.set(accent.get()).a((int) (accent.get().a * a));
-                if (!isSecondHalfOfDoubleChest(blockEntity)) overlays.add(new Overlay(ContainerObservations.canonical(blockEntity), bounds(blockEntity), new Color(lineColor),
-                    Math.sqrt(PlayerUtils.squaredDistanceToCamera(livePos.getX() + 0.5, livePos.getY() + 0.5, livePos.getZ() + 0.5))));
-
-                if (mode.get() == Mode.Box) {
-                    renderBox(event, blockEntity);
-                }
-
-                if (mode.get() == Mode.Shader) {
-                    renderShader(event, blockEntity);
-                }
-
-                lineColor.a = prevLineA;
-                sideColor.a = prevSideA;
-
-                count++;
-            }
+        for (BlockEntity indexed : ordered) {
+            BlockPos pos = indexed.getBlockPos();
+            if (!mc.level.hasChunk(pos.getX() >> 4, pos.getZ() >> 4) || mc.level.getBlockEntity(pos) != indexed) continue;
+            // Either indexed half discovers the logical chest, even across chunk boundaries.
+            BlockEntity source = ContainerObservations.canonical(indexed);
+            if (candidates.contains(source)) continue;
+            Color color = blockColor(source);
+            if (color != null) addCandidate(source, bounds(source), color);
+        }
+        if (vehicles.get()) for (Entity entity : mc.level.entitiesForRendering()) {
+            if (!(entity instanceof ContainerEntity) || !entity.isAlive()) continue;
+            AABB bounds = entity.getBoundingBox().move(Mth.lerp(event.tickDelta, entity.xOld, entity.getX()) - entity.getX(),
+                Mth.lerp(event.tickDelta, entity.yOld, entity.getY()) - entity.getY(), Mth.lerp(event.tickDelta, entity.zOld, entity.getZ()) - entity.getZ());
+            addCandidate(entity, bounds, other.get());
         }
 
-        if (mode.get() == Mode.Shader && count > 0) {
+        // Blocks and vehicles share the same nearest-first budget. Double chests count once.
+        overlays.addAll(candidates.nearest(renderBudget.get()));
+        boolean shaderStarted = false;
+        for (Overlay overlay : overlays) {
+            lineColor.set(overlay.color);
+            sideColor.set(lineColor).a(lineColor.a * fillOpacity.get() / 255);
+            if (tracers.get()) {
+                Vec3 center = overlay.bounds.getCenter();
+                event.renderer.line(RenderUtils.center.x, RenderUtils.center.y, RenderUtils.center.z, center.x, center.y, center.z, lineColor);
+            }
+            if (boxes.get()) {
+                if (mode.get() == Mode.Shader && overlay.source instanceof BlockEntity block) {
+                    if (!shaderStarted) { mesh.begin(); shaderStarted = true; }
+                    renderShader(event, block);
+                    BlockEntity partner = ContainerObservations.partner(block);
+                    if (partner != null) renderShader(event, partner);
+                } else renderBox(event, overlay.bounds);
+            }
+            count++;
+        }
+        if (shaderStarted) {
             MeshRenderer.begin()
                 .attachments(PostProcessShaders.STORAGE_OUTLINE.framebuffer)
                 .clearColor(Color.CLEAR)
                 .pipeline(Client33RenderPipelines.WORLD_COLORED)
                 .mesh(mesh, event.matrices)
                 .end();
-
             PostProcessShaders.STORAGE_OUTLINE.render();
-        }
-        if (vehicles.get()) for (var entity : mc.level.entitiesForRendering()) {
-            if (count >= renderBudget.get()) break;
-            if (!(entity instanceof ContainerEntity) || !entity.isAlive()) continue;
-            double opacity = opacityAt(entity.blockPosition());
-            if (opacity < 0.075) continue;
-            Color line = new Color(other.get()).a((int) (other.get().a * opacity));
-            Color fill = new Color(line).a(line.a * fillOpacity.get() / 255);
-            var bounds = entity.getBoundingBox().move(Mth.lerp(event.tickDelta, entity.xOld, entity.getX()) - entity.getX(),
-                Mth.lerp(event.tickDelta, entity.yOld, entity.getY()) - entity.getY(), Mth.lerp(event.tickDelta, entity.zOld, entity.getZ()) - entity.getZ());
-            if (hideOpened.get() && observations.snapshot(entity, memorySeconds.get() * 1000L) != null) continue;
-            if (openedColor.get().a > 0 && observations.snapshot(entity, memorySeconds.get() * 1000L) != null) {
-                line.set(openedColor.get()).a((int) (openedColor.get().a * opacity)); fill.set(line).a(line.a * fillOpacity.get() / 255);
-            }
-            if (focused == entity) line.set(accent.get());
-            event.renderer.box(bounds, fill, line, shapeMode.get(), 0);
-            if (boxStyle.get() == BoxStyle.Hologram) hologram(event, bounds, line);
-            if (tracers.get()) event.renderer.line(RenderUtils.center.x, RenderUtils.center.y, RenderUtils.center.z, bounds.getCenter().x, bounds.getCenter().y, bounds.getCenter().z, line);
-            overlays.add(new Overlay(entity, bounds, line, Math.sqrt(PlayerUtils.squaredDistanceToCamera(entity.getX(), entity.getY(), entity.getZ()))));
-            count++;
         }
     }
 
+    private void addCandidate(Object source, AABB bounds, Color color) {
+        Vec3 center = bounds.getCenter();
+        double distance = Math.sqrt(PlayerUtils.squaredDistanceToCamera(center.x, center.y, center.z));
+        var camera = mc.gameRenderer.mainCamera().position();
+        double rangeDistance = Math.sqrt(com.gaspoweredcake.client33.utils.render.EspRange.squared(center.x - camera.x, center.y - camera.y, center.z - camera.z, fullHeight.get()));
+        double opacity = StorageRenderMath.opacity(distance, rangeDistance, fadeDistance.get(), maxDistance.get(), farFadeDistance.get());
+        if (opacity < 0.075) return;
+        var data = snapshot(source);
+        if (data != null && hideOpened.get()) return;
+        Color base = focused == source ? accent.get() : data != null && openedColor.get().a > 0 ? openedColor.get() : color;
+        candidates.add(source, new Overlay(source, bounds, StorageRenderMath.faded(base, opacity), distance), distance);
+    }
+
     private void clearCache() {
-        containers.clear(); ordered.clear(); overlays.clear(); observations.clear(); focused = null; scanQueue.clear(); scanTick = 0; scanWorld = mc.level;
+        containers.clear(); ordered.clear(); overlays.clear(); candidates.clear(); observations.clear(); focused = null; scanQueue.clear(); scanTick = 0; scanWorld = mc.level;
     }
     @Override public void onActivate() { clearCache(); }
     @Override public void onDeactivate() { clearCache(); }
@@ -421,7 +387,7 @@ public class StorageESP extends Module {
             || mc.level.getBlockEntity(entry.getKey()) != entry.getValue());
         if (scanQueue.isEmpty()) for (ChunkAccess chunk : Utils.chunks()) {
             double x = chunk.getPos().x() * 16.0 + 8, z = chunk.getPos().z() * 16.0 + 8;
-            if (maxDistance.get() == 0 || PlayerUtils.squaredDistanceToCamera(x, mc.player.getY(), z) <= Math.pow(maxDistance.get() + 24, 2)) scanQueue.addLast(chunk);
+            if (maxDistance.get() == 0 || com.gaspoweredcake.client33.utils.render.EspRange.squared(x - mc.gameRenderer.mainCamera().position().x, 0, z - mc.gameRenderer.mainCamera().position().z, true) <= Math.pow(maxDistance.get() + 24, 2)) scanQueue.addLast(chunk);
         }
         for (int i = 0; i < chunksPerTick.get() && !scanQueue.isEmpty(); i++) {
             ChunkAccess chunk = scanQueue.removeFirst();
@@ -438,61 +404,13 @@ public class StorageESP extends Module {
     }
 
 
-    private double opacityAt(BlockPos pos) {
-        double distanceSquared = PlayerUtils.squaredDistanceToCamera(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
-        int limit = maxDistance.get();
-        if (limit > 0 && distanceSquared >= (double) limit * limit) return 0;
-
-        double distance = Math.sqrt(distanceSquared);
-        double opacity = 1;
-        double nearFade = fadeDistance.get();
-        if (nearFade > 0) {
-            double t = Mth.clamp(distance / nearFade, 0, 1);
-            opacity *= t * t * (3 - 2 * t);
-        }
-
-        int farFade = farFadeDistance.get();
-        if (limit > 0 && farFade > 0) {
-            double t = Mth.clamp((limit - distance) / Math.min(farFade, limit), 0, 1);
-            opacity *= t * t * (3 - 2 * t);
-        }
-        return opacity;
-    }
-
-    private boolean isSecondHalfOfDoubleChest(BlockEntity blockEntity) {
-        return ContainerObservations.canonical(blockEntity) != blockEntity;
-    }
-
     private AABB bounds(BlockEntity blockEntity) {
-        BlockPos pos = blockEntity.getBlockPos();
-        double x1 = pos.getX();
-        double y1 = pos.getY();
-        double z1 = pos.getZ();
-        double x2 = x1 + 1;
-        double y2 = y1 + 1;
-        double z2 = z1 + 1;
-
-        BlockEntity otherHalf = ContainerObservations.partner(blockEntity);
-        if (otherHalf != null) {
-            BlockPos otherPos = otherHalf.getBlockPos();
-            x1 = Math.min(x1, otherPos.getX()); z1 = Math.min(z1, otherPos.getZ());
-            x2 = Math.max(x2, otherPos.getX() + 1); z2 = Math.max(z2, otherPos.getZ() + 1);
-        }
-
-        if (blockEntity instanceof ChestBlockEntity || blockEntity instanceof EnderChestBlockEntity) {
-            double inset = 1.0 / 16.0;
-            x1 += inset;
-            z1 += inset;
-            x2 -= inset;
-            y2 -= inset * 2;
-            z2 -= inset;
-        }
-
-        return new AABB(x1, y1, z1, x2, y2, z2);
+        BlockEntity partner = ContainerObservations.partner(blockEntity);
+        return StorageRenderMath.bounds(blockEntity.getBlockPos(), partner == null ? null : partner.getBlockPos(),
+            blockEntity instanceof ChestBlockEntity || blockEntity instanceof EnderChestBlockEntity);
     }
 
-    private void renderBox(Render3DEvent event, BlockEntity blockEntity) {
-        AABB box = bounds(blockEntity);
+    private void renderBox(Render3DEvent event, AABB box) {
         double x1 = box.minX, y1 = box.minY, z1 = box.minZ, x2 = box.maxX, y2 = box.maxY, z2 = box.maxZ;
         if (boxStyle.get() == BoxStyle.Hologram) hologram(event, box, lineColor);
         if (boxStyle.get() == BoxStyle.Full) {
@@ -686,7 +604,7 @@ public class StorageESP extends Module {
     }
 
     public boolean isShader() {
-        return isActive() && mode.get() == Mode.Shader;
+        return isActive() && boxes.get() && mode.get() == Mode.Shader;
     }
 
     public enum Mode {

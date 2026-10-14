@@ -182,42 +182,36 @@ public class MeshBuilder {
     }
 
     public void ensureCapacity(int vertexCount, int indexCount) {
+        int requiredVertices = MeshCapacity.requiredBytes(vertexI, vertexCount, primitiveVerticesSize);
+        int requiredIndices = MeshCapacity.requiredBytes(indicesCount, indexCount, indexType.bytes);
         if (DEBUG && (indexCount % primitiveIndicesCount != 0)) {
             throw new IllegalArgumentException("Unexpected amount of indices written to MeshBuilder.");
         }
 
-        if (vertices == null || indices == null) {
-            allocateBuffers(256 * 4, 512 * indexType.bytes);
-            return;
-        }
-
-        if ((vertexI + vertexCount) * primitiveVerticesSize >= vertices.capacity()) {
+        int vertexCapacity = vertices == null ? 0 : vertices.capacity();
+        int indexCapacity = indices == null ? 0 : indices.capacity();
+        if (vertices == null || requiredVertices > vertexCapacity) {
             int offset = getVerticesOffset();
-            int newSize = Math.max(vertices.capacity() * 2, vertices.capacity() + vertexCount * primitiveVerticesSize);
-            ByteBuffer newVertices = BufferUtils.createByteBuffer(newSize);
-            memCopy(memAddress0(vertices), memAddress0(newVertices), offset);
-
+            ByteBuffer newVertices = BufferUtils.createByteBuffer(MeshCapacity.grow(vertexCapacity, Math.max(1, requiredVertices), 1024 * primitiveVerticesSize));
+            if (vertices != null && offset > 0) memCopy(memAddress0(vertices), memAddress0(newVertices), offset);
             vertices = newVertices;
             verticesPointerStart = memAddress0(vertices);
             verticesPointer = verticesPointerStart + offset;
         }
 
-        if ((indicesCount + indexCount) * indexType.bytes >= indices.capacity()) {
-            int newSize = Math.max(indices.capacity() * 2, indices.capacity() + indexCount * indexType.bytes);
-
-            ByteBuffer newIndices = BufferUtils.createByteBuffer(newSize);
-            memCopy(memAddress0(indices), memAddress0(newIndices), indicesCount * (long) indexType.bytes);
-
+        if (indices == null || requiredIndices > indexCapacity) {
+            ByteBuffer newIndices = BufferUtils.createByteBuffer(MeshCapacity.grow(indexCapacity, Math.max(1, requiredIndices), 2048 * indexType.bytes));
+            if (indices != null && indicesCount > 0) memCopy(memAddress0(indices), memAddress0(newIndices), indicesCount * (long) indexType.bytes);
             indices = newIndices;
             indicesPointer = memAddress0(indices);
         }
     }
 
     private void allocateBuffers(int vertexCount, int indexCount) {
-        vertices = BufferUtils.createByteBuffer(primitiveVerticesSize * vertexCount);
+        vertices = BufferUtils.createByteBuffer(MeshCapacity.requiredBytes(0, vertexCount, primitiveVerticesSize));
         verticesPointer = verticesPointerStart = memAddress0(vertices);
 
-        indices = BufferUtils.createByteBuffer(indexCount * indexType.bytes);
+        indices = BufferUtils.createByteBuffer(MeshCapacity.requiredBytes(0, indexCount, indexType.bytes));
         indicesPointer = memAddress0(indices);
     }
 

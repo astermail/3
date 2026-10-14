@@ -20,6 +20,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class GuiRegression {
     private static final GuiTheme THEME = new TestTheme();
     public static void run() {
+        var parent = new com.gaspoweredcake.client33.gui.renderer.Scissor().set(10, 10, 40, 40);
+        var clip = new com.gaspoweredcake.client33.gui.renderer.Scissor().intersect(0, 0, 25, 25, parent);
+        check(clip.x == 10 && clip.y == 10 && clip.width == 15 && clip.height == 15, "Clipping the left/top edges also shrinks the content rectangle");
+        clip.intersect(0, 0, 80, 80, parent);
+        check(clip.width == 40 && clip.height == 40, "A child spanning both edges cannot escape its parent clip");
+        clip.intersect(80, 80, 20, 20, parent);
+        check(clip.width == 0 && clip.height == 0, "Disjoint children have an empty clip");
+        controlRegressions();
         var lower = PopupBounds.fit(20, 20, 80, 200, 4);
         check(lower.y() == 40 && lower.height() == 80, "A menu with room opens below its control");
         var upper = PopupBounds.fit(160, 20, 100, 200, 4);
@@ -78,6 +86,23 @@ public final class GuiRegression {
         view.mouseMoved(200, 200, 10, 90);
         check(!content.mouseOver, "Leaving a view clears descendant hover");
 
+        var workspace = new WAdaptiveContent(); workspace.theme = THEME;
+        workspace.availableHeight = 240; workspace.spacing = 8;
+        workspace.add(new WWidget() { @Override protected void onCalculateSize() { width = 120; height = 24; }});
+        var searchResults = workspace.add(new TestView()).widget(); workspace.results = searchResults;
+        double[] resultHeight = {500};
+        searchResults.add(new WWidget() { @Override protected void onCalculateSize() { width = 120; height = resultHeight[0]; }});
+        workspace.calculateSize();
+        check(workspace.height == 240, "Full search results respect the workspace height");
+        workspace.calculateSize(); // A second overflowing layout queues a scroll-position update.
+        resultHeight[0] = 16; workspace.calculateSize();
+        check(workspace.height == 240 && searchResults.height == 208, "Filtering keeps the centered search workspace stationary");
+        workspace.calculateWidgetPositions();
+        searchResults.animateScroll();
+        check(searchResults.movedY == 0, "Filtering a scrollable list cannot push remaining results below a blank gap");
+        resultHeight[0] = 0; workspace.calculateSize();
+        check(workspace.height == 240, "No-match searches also retain their position");
+
         TestDropdown dropdown = new TestDropdown();
         dropdown.theme = THEME; dropdown.init(); dropdown.calculateSize();
         dropdown.y = 180; dropdown.calculateWidgetPositions(); dropdown.open();
@@ -87,6 +112,8 @@ public final class GuiRegression {
         check(dropdown.get().equals("B"), "Down arrow chooses the next menu value");
         check(dropdown.keyPressed(new KeyEvent(256, 0, 0)) && !dropdown.isFocused(), "Escape closes a menu and releases focus");
 
+        var namedSetting = new com.gaspoweredcake.client33.settings.BoolSetting.Builder().name("allowWaterBucketFall").build();
+        check(namedSetting.title.equals("Allow Water Bucket Fall") && namedSetting.name.equals("allowWaterBucketFall"), "Camel-case setting labels are readable without changing saved keys");
         check(CardLayout.columns(599) == 1 && CardLayout.columns(600) == 2 && CardLayout.columns(940) == 3, "Cards adapt at column boundaries");
         check(CardLayout.compact(759) && !CardLayout.compact(760), "Narrow workspaces use the compact controls");
         check(CardLayout.ellipsize("😀😀😀", 5, String::length).equals("😀..."), "Truncated titles preserve complete Unicode characters");
@@ -94,9 +121,10 @@ public final class GuiRegression {
         WModuleCard card = new WModuleCard("Survival Bot", "Gather wood and prepare your survival kit.", "World", 300,
             () -> false, () -> false, opened::incrementAndGet, toggled::incrementAndGet, starred::incrementAndGet);
         card.theme = THEME; card.calculateSize();
-        var body = new MouseButtonEvent(20, 55, new MouseButtonInfo(0, 0));
+        check(card.height <= 64, "Module rows remain compact");
+        var body = new MouseButtonEvent(20, 20, new MouseButtonInfo(0, 0));
         var switchClick = new MouseButtonEvent(260, card.height - 22, new MouseButtonInfo(0, 0));
-        var starClick = new MouseButtonEvent(278, 20, new MouseButtonInfo(0, 0));
+        var starClick = new MouseButtonEvent(215, 20, new MouseButtonInfo(0, 0));
         card.mouseClicked(body, false); card.mouseReleased(body);
         check(opened.get() == 1 && toggled.get() == 0, "Card body opens settings without enabling the module");
         card.mouseClicked(switchClick, false); card.mouseReleased(switchClick);
@@ -148,7 +176,14 @@ public final class GuiRegression {
     private static final class TestView extends WView {
         @Override public void init() { maxHeight = 100; }
         @Override protected double spacing() { return 0; }
-        @Override public void moveCells(double x, double y) { }
+        double movedY;
+        @Override public void moveCells(double x, double y) { movedY += y; }
+        void animateScroll() {
+            try {
+                var animate = WView.class.getDeclaredMethod("updateScroll", double.class);
+                animate.setAccessible(true); animate.invoke(this, 1.0 / 60);
+            } catch (ReflectiveOperationException failure) { throw new AssertionError(failure); }
+        }
         double thumbHeight() { return handleHeight(); }
     }
 
@@ -166,6 +201,75 @@ public final class GuiRegression {
         double menuBottom() { return root.y + root.height; }
     }
 
+    private static void controlRegressions() {
+        AtomicInteger commits = new AtomicInteger();
+        var slider = new TestSlider(0.5, 0, 1);
+        slider.theme = THEME; slider.width = 200; slider.height = 16;
+        slider.actionOnRelease = commits::incrementAndGet;
+        slider.hoverHandle();
+        slider.onMouseScrolled(1);
+        check(slider.get() > 0.5 && commits.get() == 1, "Wheel changes commit release-only settings such as GUI scale");
+        slider.mouseOver = true;
+        check(!slider.onMouseClicked(new MouseButtonEvent(100, 8, new MouseButtonInfo(1, 0)), false), "Right-click cannot start a slider drag");
+        slider.onMouseClicked(new MouseButtonEvent(140, 8, new MouseButtonInfo(0, 0)), false);
+        check(!slider.onMouseReleased(new MouseButtonEvent(140, 8, new MouseButtonInfo(1, 0))) && slider.isFocused(), "Unrelated button release preserves a drag");
+        slider.onMouseReleased(new MouseButtonEvent(140, 8, new MouseButtonInfo(0, 0)));
+        var fixed = new TestSlider(2, 2, 2); fixed.theme = THEME; fixed.width = 16; fixed.height = 16; fixed.mouseOver = true;
+        fixed.onMouseClicked(new MouseButtonEvent(8, 8, new MouseButtonInfo(0, 0)), false);
+        check(Double.isFinite(fixed.get()) && Double.isFinite(fixed.position()), "Zero-range and zero-travel sliders stay finite");
+
+        boolean[] available = {false};
+        var guarded = new WActionButton("Build", () -> available[0], commits::incrementAndGet);
+        guarded.theme = THEME; guarded.mouseOver = true;
+        int guardedBefore = commits.get();
+        check(!guarded.onMouseClicked(click(0), false), "Unavailable build actions cannot capture clicks");
+        available[0] = true; guarded.onMouseClicked(click(0), false);
+        available[0] = false; guarded.onMouseReleased(click(0));
+        check(commits.get() == guardedBefore, "Availability is rechecked when an action is released");
+        available[0] = true; guarded.onMouseClicked(click(0), false); guarded.onMouseReleased(click(0));
+        check(commits.get() == guardedBefore + 1, "Available action fires exactly once");
+
+        WTextBox text = THEME.textBox("value", "", (_, _) -> true, null);
+        text.actionOnUnfocused = commits::incrementAndGet;
+        text.setFocused(true);
+        int before = commits.get();
+        text.keyPressed(new KeyEvent(257, 0, 0));
+        check(commits.get() == before + 1 && !text.isFocused(), "Enter commits a field exactly once");
+        text.setFocused(true);
+        text.actionOnUnfocused = () -> { commits.incrementAndGet(); text.setFocused(false); };
+        before = commits.get(); text.setFocused(false);
+        check(commits.get() == before + 1, "Focus callbacks can close or reload a screen without recursing");
+
+        WIntEdit integer = THEME.intEdit(4, 1, 10, true); integer.init();
+        WTextBox input = (WTextBox) integer.cells.getFirst().widget();
+        integer.action = commits::incrementAndGet;
+        input.set("99"); input.setFocused(true); input.setFocused(false);
+        check(integer.get() == 10 && input.get().equals("10"), "Typed integers clamp and display the value actually applied");
+        input.set("invalid"); input.setFocused(true); input.setFocused(false);
+        check(integer.get() == 10 && input.get().equals("10"), "Invalid numeric text restores the accepted value");
+        WIntEdit limit = THEME.intEdit(Integer.MAX_VALUE, 0, Integer.MAX_VALUE, true); limit.init();
+        ((WButton) limit.cells.get(1).widget()).action.run();
+        check(limit.get() == Integer.MAX_VALUE, "Incrementing the integer maximum cannot wrap to the minimum");
+
+        WDoubleEdit decimal = THEME.doubleEdit(0.5, 0, 1, 0, 1, 2, true); decimal.init();
+        decimal.action = commits::incrementAndGet;
+        before = commits.get();
+        ((WButton) decimal.cells.get(1).widget()).action.run();
+        check(decimal.get() == 1 && commits.get() == before + 1
+            && ((WTextBox) decimal.cells.getFirst().widget()).get().equals("1.00"), "Fractional boundary increments update display and setting together");
+    }
+
+    private static final class TestSlider extends WSlider {
+        TestSlider(double value, double min, double max) { super(value, min, max); }
+        void hoverHandle() { handleMouseOver = true; }
+        double position() { return valueWidth(); }
+    }
+    private static final class TestTextBox extends WTextBox {
+        TestTextBox(String text, String placeholder, CharFilter filter, Class<? extends Renderer> renderer) { super(text, placeholder, filter, renderer); }
+        @Override protected WContainer createCompletionsRootWidget() { throw new UnsupportedOperationException(); }
+        @Override protected <T extends WWidget & ICompletionItem> T createCompletionsValueWidth(String completion, boolean selected) { throw new UnsupportedOperationException(); }
+    }
+
     private static final class TestTheme extends GuiTheme {
         TestTheme() { super("Synthetic GUI"); }
         @Override public double textWidth(String text, int length, boolean title) { return length * 8; }
@@ -174,14 +278,14 @@ public final class GuiRegression {
         @Override public WLabel label(String text, boolean title, double maxWidth) { throw new UnsupportedOperationException(); }
         @Override public WHorizontalSeparator horizontalSeparator(String text) { throw new UnsupportedOperationException(); }
         @Override public WVerticalSeparator verticalSeparator() { throw new UnsupportedOperationException(); }
-        @Override protected WButton button(String text, GuiTexture texture) { throw new UnsupportedOperationException(); }
+        @Override protected WButton button(String text, GuiTexture texture) { return w(new WButton(text, texture) {}); }
         @Override protected WConfirmedButton confirmedButton(String text, String confirmText, GuiTexture texture) { throw new UnsupportedOperationException(); }
         @Override public WMinus minus() { throw new UnsupportedOperationException(); }
         @Override public WConfirmedMinus confirmedMinus() { throw new UnsupportedOperationException(); }
         @Override public WPlus plus() { throw new UnsupportedOperationException(); }
         @Override public WCheckbox checkbox(boolean checked) { throw new UnsupportedOperationException(); }
-        @Override public WSlider slider(double value, double min, double max) { throw new UnsupportedOperationException(); }
-        @Override public WTextBox textBox(String text, String placeholder, CharFilter filter, Class<? extends WTextBox.Renderer> renderer) { throw new UnsupportedOperationException(); }
+        @Override public WSlider slider(double value, double min, double max) { return w(new TestSlider(value, min, max)); }
+        @Override public WTextBox textBox(String text, String placeholder, CharFilter filter, Class<? extends WTextBox.Renderer> renderer) { return w(new TestTextBox(text, placeholder, filter, renderer)); }
         @Override public <T> WDropdown<T> dropdown(T[] values, T value) { throw new UnsupportedOperationException(); }
         @Override public WTriangle triangle() { throw new UnsupportedOperationException(); }
         @Override public WTooltip tooltip(String text) { throw new UnsupportedOperationException(); }

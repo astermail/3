@@ -40,8 +40,6 @@ import static com.gaspoweredcake.client33.Client33.mc;
 public class HudRenderer {
     public static final HudRenderer INSTANCE = new HudRenderer();
 
-    private static final double SCALE_TO_HEIGHT = 1.0 / 18.0;
-
     private final Hud hud = Hud.get();
     private final List<Runnable> postTasks = new ArrayList<>();
 
@@ -141,6 +139,7 @@ public class HudRenderer {
         if (scale == -1) scale = hud.getTextScale();
 
         if (!hud.hasCustomFont()) {
+            VanillaTextRenderer.INSTANCE.scale = scale * 2;
             return VanillaTextRenderer.INSTANCE.render(text, x, y, color, shadow);
         }
 
@@ -148,6 +147,7 @@ public class HudRenderer {
 
         Font font = fontHolder.font;
         MeshBuilder mesh = fontHolder.getMesh();
+        double drawScale = HudTextMetrics.drawScale(scale, font.getHeight());
 
         double width;
 
@@ -155,12 +155,12 @@ public class HudRenderer {
             int preShadowA = CustomTextRenderer.SHADOW_COLOR.a;
             CustomTextRenderer.SHADOW_COLOR.a = (int) (color.a / 255.0 * preShadowA);
 
-            width = font.render(mesh, text, x + 1, y + 1, CustomTextRenderer.SHADOW_COLOR, scale);
-            font.render(mesh, text, x, y, color, scale);
+            width = font.render(mesh, text, x + 1, y + 1, CustomTextRenderer.SHADOW_COLOR, drawScale);
+            font.render(mesh, text, x, y, color, drawScale);
 
             CustomTextRenderer.SHADOW_COLOR.a = preShadowA;
         } else {
-            width = font.render(mesh, text, x, y, color, scale);
+            width = font.render(mesh, text, x, y, color, drawScale);
         }
 
         return width;
@@ -174,8 +174,9 @@ public class HudRenderer {
         if (text.isEmpty()) return 0;
 
         if (hud.hasCustomFont()) {
-            double width = getFont(scale).getWidth(text, text.length());
-            return (width + (shadow ? 1 : 0)) * (scale == -1 ? hud.getTextScale() : scale) + (shadow ? 1 : 0);
+            double requested = scale == -1 ? hud.getTextScale() : scale;
+            Font font = getFont(requested);
+            return font.getWidth(text, text.length()) * HudTextMetrics.drawScale(requested, font.getHeight()) + (shadow ? 1 : 0);
         }
 
         VanillaTextRenderer.INSTANCE.scale = (scale == -1 ? hud.getTextScale() : scale) * 2;
@@ -196,8 +197,8 @@ public class HudRenderer {
 
     public double textHeight(boolean shadow, double scale) {
         if (hud.hasCustomFont()) {
-            double height = getFont(scale).getHeight() + 1;
-            return (height + (shadow ? 1 : 0)) * (scale == -1 ? hud.getTextScale() : scale);
+            double requested = scale == -1 ? hud.getTextScale() : scale;
+            return 18 * requested + 1 + (shadow ? 1 : 0);
         }
 
         VanillaTextRenderer.INSTANCE.scale = (scale == -1 ? hud.getTextScale() : scale) * 2;
@@ -263,7 +264,7 @@ public class HudRenderer {
     private FontHolder getFontHolder(double scale, boolean render) {
         // Calculate font height
         if (scale == -1) scale = hud.getTextScale();
-        int height = (int) Math.round(scale / SCALE_TO_HEIGHT);
+        int height = HudTextMetrics.rasterHeight(scale);
 
         // Check fonts in use
         FontHolder fontHolder = fontsInUse.get(height);

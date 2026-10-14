@@ -36,6 +36,7 @@ public class Renderer2D {
 
     public void setAlpha(double alpha) {
         triangles.alpha = alpha;
+        lines.alpha = alpha;
     }
 
     public void begin() {
@@ -63,17 +64,18 @@ public class Renderer2D {
         if (lines.isBuilding()) lines.end();
         if (triangles.isBuilding()) triangles.end();
 
-        MeshRenderer.begin()
-            .attachments(Minecraft.getInstance().gameRenderer.mainRenderTarget())
-            .pipeline(Client33RenderPipelines.UI_COLORED_LINES)
-            .mesh(lines)
-            .end();
-
+        // Submit translucent fills first so outlines remain crisp.
         MeshRenderer.begin()
             .attachments(Minecraft.getInstance().gameRenderer.mainRenderTarget())
             .pipeline(textured ? Client33RenderPipelines.UI_TEXTURED : Client33RenderPipelines.UI_COLORED)
             .mesh(triangles)
             .sampler(samplerName, samplerView, sampler)
+            .end();
+
+        MeshRenderer.begin()
+            .attachments(Minecraft.getInstance().gameRenderer.mainRenderTarget())
+            .pipeline(Client33RenderPipelines.UI_COLORED_LINES)
+            .mesh(lines)
             .end();
     }
 

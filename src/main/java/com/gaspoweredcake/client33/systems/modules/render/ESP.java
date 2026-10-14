@@ -22,6 +22,7 @@ import com.gaspoweredcake.client33.utils.entity.EntityUtils;
 import com.gaspoweredcake.client33.utils.player.PlayerUtils;
 import com.gaspoweredcake.client33.utils.render.NametagUtils;
 import com.gaspoweredcake.client33.utils.render.ScreenBounds;
+import com.gaspoweredcake.client33.utils.render.LabelLayout;
 import com.gaspoweredcake.client33.renderer.text.TextRenderer;
 import com.gaspoweredcake.client33.utils.render.WireframeEntityRenderer;
 import com.gaspoweredcake.client33.utils.render.color.Color;
@@ -147,10 +148,21 @@ public class ESP extends Module {
 
     private final Setting<Double> maxDistance = sgGeneral.add(new DoubleSetting.Builder()
         .name("max-distance")
-        .description("Maximum distance from the camera for all ESP modes.")
+        .description("Maximum distance from the camera for non-player entities in all ESP modes.")
         .defaultValue(128)
         .range(1, 512)
         .sliderRange(16, 256)
+        .build()
+    );
+
+    private final Setting<Boolean> fullHeight = sgGeneral.add(new BoolSetting.Builder().name("full-height").description("Apply range horizontally, showing tracked entities throughout the loaded world height, including below deepslate.").defaultValue(true).build());
+
+    private final Setting<Double> playerDistance = sgGeneral.add(new DoubleSetting.Builder()
+        .name("player-distance")
+        .description("Player ESP range, independent of terrain render distance. Only players sent by the server can be shown.")
+        .defaultValue(512)
+        .range(1, 4096)
+        .sliderRange(16, 1024)
         .build()
     );
 
@@ -327,6 +339,7 @@ public class ESP extends Module {
         Renderer2D.COLOR.begin();
         TextRenderer text = TextRenderer.get();
         if (distanceLabel.get()) text.begin(event.graphics, 0.8);
+        LabelLayout labels = distanceLabel.get() ? new LabelLayout(mc.getWindow().getWidth(), mc.getWindow().getHeight()) : null;
         count = 0;
 
         for (Entity entity : mc.level.entitiesForRendering()) {
@@ -385,10 +398,13 @@ public class ESP extends Module {
             }
             if (distanceLabel.get()) {
                 String label = (mode.get() == Mode.Telemetry ? entity.getName().getString() + " / " : "") + Math.round(Math.sqrt(PlayerUtils.squaredDistanceToCamera(entity.getX(), entity.getY(), entity.getZ()))) + " m";
-                double labelX = Mth.clamp((bounds.left + bounds.right - text.getWidth(label)) / 2, 0,
-                    Math.max(0, mc.getWindow().getWidth() - text.getWidth(label)));
-                double labelY = Math.min(bounds.bottom + 3, mc.getWindow().getHeight() - text.getHeight());
-                text.render(label, labelX, labelY, lineColor, true);
+                double textHeight = text.getHeight();
+                var rect = labels.place((bounds.left + bounds.right) / 2,
+                    Math.min(mc.getWindow().getHeight() - 4, bounds.bottom + textHeight + 12), text.getWidth(label) + 12, textHeight + 8);
+                if (rect != null) {
+                    Renderer2D.COLOR.quad(rect.x(), rect.y(), rect.width(), rect.height(), new Color(10, 14, 21, lineColor.a * 3 / 4));
+                    text.render(label, rect.x() + 6, rect.y() + 4, lineColor, true);
+                }
             }
 
             count++;
@@ -431,8 +447,11 @@ public class ESP extends Module {
         if (!drawAsTarget(entity) && !entities.get().contains(entity.getType())) return true;
         if (entity == mc.player && ignoreSelf.get()) return true;
         if (entity == mc.getCameraEntity() && mc.options.getCameraType().isFirstPerson()) return true;
-        return !EntityUtils.isInRenderDistance(entity)
-            || PlayerUtils.squaredDistanceToCamera(entity.getX(), entity.getY(), entity.getZ()) > maxDistance.get() * maxDistance.get();
+        boolean player = entity instanceof Player;
+        double range = player ? playerDistance.get() : maxDistance.get();
+        var camera = mc.gameRenderer.mainCamera().position();
+        double distance = com.gaspoweredcake.client33.utils.render.EspRange.squared(entity.getX() - camera.x, entity.getY() - camera.y, entity.getZ() - camera.z, fullHeight.get());
+        return (!player && !EntityUtils.isInRenderDistance(entity)) || distance > range * range;
     }
 
     public boolean shouldSkip(EntityType<?> entityType) {

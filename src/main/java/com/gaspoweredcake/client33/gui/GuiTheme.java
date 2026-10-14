@@ -319,8 +319,10 @@ public abstract class GuiTheme implements ISerializable<GuiTheme> {
 
     public abstract boolean hideHUD();
 
+    public double fontScale() { return 1; }
+
     public double textWidth(String text, int length, boolean title) {
-        return scale(textRenderer().getWidth(text, length, false) * (title ? TITLE_TEXT_SCALE : 1));
+        return scale(fontScale() * textRenderer().getWidth(text, length, false) * (title ? TITLE_TEXT_SCALE : 1));
     }
 
     public double textWidth(String text) {
@@ -328,7 +330,7 @@ public abstract class GuiTheme implements ISerializable<GuiTheme> {
     }
 
     public double textHeight(boolean title) {
-        return scale(textRenderer().getHeight() * (title ? TITLE_TEXT_SCALE : 1));
+        return scale(fontScale() * textRenderer().getHeight() * (title ? TITLE_TEXT_SCALE : 1));
     }
 
     public double textHeight() {

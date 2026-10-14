@@ -10,6 +10,11 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.gaspoweredcake.client33.Client33;
 import com.gaspoweredcake.client33.events.render.Render3DEvent;
+import com.gaspoweredcake.client33.mixin.MinecraftServerAccessor;
+import com.gaspoweredcake.client33.utils.files.AtomicFile;
+import com.gaspoweredcake.client33.utils.world.CoordinateContext;
+import com.gaspoweredcake.client33.utils.world.StashPersistence;
+import com.gaspoweredcake.client33.events.game.GameLeftEvent;
 import com.gaspoweredcake.client33.events.world.ChunkDataEvent;
 import com.gaspoweredcake.client33.events.world.TickEvent;
 import com.gaspoweredcake.client33.gui.GuiTheme;
@@ -45,7 +50,6 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.*;
 import net.minecraft.world.phys.Vec3;
-import org.apache.commons.lang3.StringUtils;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -179,6 +183,7 @@ public class StashFinder extends Module {
     );
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final StashPersistence PERSISTENCE = new StashPersistence();
 
     private record CsvField(String name, ToIntFunction<Chunk> getter, ObjIntConsumer<Chunk> setter) {
         public CsvField(String name, ToIntFunction<Chunk> getter) {
@@ -195,74 +200,111 @@ public class StashFinder extends Module {
         new CsvField("enderChests", c -> c.enderChests, (c, v) -> c.enderChests = v),
         new CsvField("furnaces", c -> c.furnaces, (c, v) -> c.furnaces = v),
         new CsvField("dispensersDroppers", c -> c.dispensersDroppers, (c, v) -> c.dispensersDroppers = v),
-        new CsvField("hoppers", c -> c.hoppers, (c, v) -> c.hoppers = v)
+        new CsvField("hoppers", c -> c.hoppers, (c, v) -> c.hoppers = v),
+        new CsvField("otherStorage", c -> c.otherStorage, (c, v) -> c.otherStorage = v)
     );
 
-    private final Map<ChunkPos, Vec3> tracerPositions = new HashMap<>();
+    private final Map<Chunk, Vec3> tracerPositions = new HashMap<>();
     public List<Chunk> chunks = new ArrayList<>();
+    private String loadedServer;
+    private String loadedDimension;
+    private Path storageFolder;
+    private boolean dirty;
+    private int saveTicks;
 
     public StashFinder() {
-        super(Categories.World, "stash-finder", "Searches loaded chunks for storage blocks. Saves to <your minecraft folder>/client33");
+        super(Categories.World, "stash-finder", "Searches loaded chunks for storage blocks. Saves to <your minecraft folder>/client33", "Base Finder", "Base Hunter", "Stash Hunter", "Storage Finder");
     }
 
     @Override
     public void onActivate() {
-        load();
+        ensureContext();
+    }
+
+    @Override
+    public void onDeactivate() {
+        saveRecords();
+        tracerPositions.clear();
+        loadedServer = loadedDimension = null;
+        storageFolder = null;
+        chunks.clear();
+    }
+
+    private String currentServer() {
+        if (mc.isLocalServer() && mc.getSingleplayerServer() != null)
+            return "singleplayer:" + ((MinecraftServerAccessor) mc.getSingleplayerServer()).client33$getStorageSource().getLevelId();
+        var server = mc.getCurrentServer();
+        return server == null ? CoordinateContext.UNKNOWN : "server:" + server.ip.strip().toLowerCase(Locale.ROOT);
+    }
+
+    private String currentDimension() { return mc.level == null ? CoordinateContext.UNKNOWN : mc.level.dimension().identifier().toString(); }
+
+    private void ensureContext() {
+        if (mc.level == null) return;
+        String server = currentServer(), dimension = currentDimension();
+        if (CoordinateContext.UNKNOWN.equals(server)) {
+            saveRecords();
+            loadedServer = loadedDimension = null;
+            storageFolder = null; chunks.clear(); tracerPositions.clear();
+            return;
+        }
+        if (!Objects.equals(server, loadedServer)) {
+            saveRecords();
+            loadedServer = server;
+            storageFolder = Client33.FOLDER.toPath().resolve("stashes").resolve("by-server").resolve(CoordinateContext.storageKey(server));
+            tracerPositions.clear();
+            load();
+        }
+        if (!Objects.equals(dimension, loadedDimension)) {
+            loadedDimension = dimension;
+            tracerPositions.clear();
+        }
+    }
+
+    private boolean current(Chunk chunk) {
+        return mc.level != null && chunk.matches(currentServer(), currentDimension());
+    }
+
+    private void navigate(Chunk chunk) {
+        if (!current(chunk)) { warning("Join the recorded server and dimension first; legacy records have unknown context."); return; }
+        PathManagers.get().moveTo(new BlockPos(chunk.chunkPos.getMiddleBlockX(), 0, chunk.chunkPos.getMiddleBlockZ()), true);
     }
 
     @EventHandler
     private void onTick(TickEvent.Post event) {
+        ensureContext();
+        if (++saveTicks >= 20) { saveTicks = 0; saveRecords(); }
         if (!clearTracesBind.get().isPressed()) return;
         tracerPositions.clear();
     }
 
     @EventHandler
+    private void onLeave(GameLeftEvent event) { saveRecords(); }
+
+    @EventHandler
     private void onChunkData(ChunkDataEvent event) {
+        if (mc.level == null || event.chunk().getLevel() != mc.level) return;
+        ensureContext();
+        if (loadedServer == null) return;
         // Check the distance.
         double chunkXAbs = Math.abs(event.chunk().getPos().x() * 16);
         double chunkZAbs = Math.abs(event.chunk().getPos().z() * 16);
         if (Math.sqrt(chunkXAbs * chunkXAbs + chunkZAbs * chunkZAbs) < minimumDistance.get()) return;
 
-        Chunk chunk = new Chunk(event.chunk().getPos());
-
-        List<Block> blockBlacklist = blacklistedBlocks.get();
-
-        for (BlockEntity blockEntity : event.chunk().getBlockEntities().values()) {
-            if (!storageBlocks.get().contains(blockEntity.getType())) continue;
-
-            if (!blockBlacklist.isEmpty()) {
-                BlockPos below = blockEntity.getBlockPos().below();
-                if (blockBlacklist.contains(event.chunk().getBlockState(below).getBlock())) continue;
-            }
-
-            switch (blockEntity) {
-                case ChestBlockEntity _ -> chunk.chests++;
-                case BarrelBlockEntity _ -> chunk.barrels++;
-                case ShulkerBoxBlockEntity _ -> chunk.shulkers++;
-                case EnderChestBlockEntity _ -> chunk.enderChests++;
-                case AbstractFurnaceBlockEntity _ -> chunk.furnaces++;
-                case DispenserBlockEntity _ -> chunk.dispensersDroppers++;
-                case HopperBlockEntity _ -> chunk.hoppers++;
-                default -> {
-                    // Do not track other block entities
-                }
-            }
-        }
+        Chunk chunk = scanChunk(event.chunk(), storageBlocks.get(), blacklistedBlocks.get());
+        chunk.server = loadedServer;
+        chunk.dimension = loadedDimension;
+        chunk.firstSeen = chunk.lastSeen = System.currentTimeMillis();
 
         if (chunk.getTotal() >= minimumStorageCount.get()) {
-            Chunk prevChunk = null;
-            int i = chunks.indexOf(chunk);
-
-            if (i < 0) chunks.add(chunk);
-            else prevChunk = chunks.set(i, chunk);
+            Chunk prevChunk = recordObservation(chunks, chunk);
 
             if (renderTracer.get()) {
                 double y = mc.player != null ? mc.player.getEyeY() : 0.0;
-                tracerPositions.put(chunk.chunkPos, new Vec3(chunk.chunkPos.getMiddleBlockX(), y, chunk.chunkPos.getMiddleBlockZ()));
+                tracerPositions.put(chunk, new Vec3(chunk.chunkPos.getMiddleBlockX(), y, chunk.chunkPos.getMiddleBlockZ()));
             }
 
-            saveJson();
-            saveCsv();
+            dirty = true;
 
             if (sendNotifications.get() && (!chunk.equals(prevChunk) || !chunk.countsEqual(prevChunk))) {
                 switch (notificationMode.get()) {
@@ -281,27 +323,73 @@ public class StashFinder extends Module {
         }
     }
 
+    public static Chunk scanChunk(net.minecraft.world.level.chunk.LevelChunk source, List<BlockEntityType<?>> selected, List<Block> blockBlacklist) {
+        Chunk chunk = new Chunk(source.getPos());
+        for (BlockEntity blockEntity : source.getBlockEntities().values()) {
+            if (!selected.contains(blockEntity.getType())) continue;
+
+            if (!blockBlacklist.isEmpty()) {
+                BlockPos below = blockEntity.getBlockPos().below();
+                if (blockBlacklist.contains(source.getBlockState(below).getBlock())) continue;
+            }
+
+            switch (blockEntity) {
+                case ChestBlockEntity _ -> chunk.chests++;
+                case BarrelBlockEntity _ -> chunk.barrels++;
+                case ShulkerBoxBlockEntity _ -> chunk.shulkers++;
+                case EnderChestBlockEntity _ -> chunk.enderChests++;
+                case AbstractFurnaceBlockEntity _ -> chunk.furnaces++;
+                case DispenserBlockEntity _ -> chunk.dispensersDroppers++;
+                case HopperBlockEntity _ -> chunk.hoppers++;
+                default -> chunk.otherStorage++;
+            }
+        }
+        return chunk;
+    }
+
+    /** RTP findings can be saved without enabling the independent Stash Finder module. */
+    public void saveFinding(Chunk chunk) {
+        ensureContext();
+        if (loadedServer == null) return;
+        chunk.server = loadedServer; chunk.dimension = loadedDimension;
+        chunk.firstSeen = chunk.lastSeen = java.lang.System.currentTimeMillis();
+        recordObservation(chunks, chunk);
+        dirty = true;
+        saveRecords();
+    }
+
     @Override
     public WWidget getWidget(GuiTheme theme) {
+        ensureContext();
         // Sort
         chunks.sort(Comparator.comparingInt(value -> -value.getTotal()));
 
         WVerticalList list = theme.verticalList();
 
+        list.add(theme.label("Server: " + (loadedServer == null ? "Join a world" : loadedServer), 480));
+        list.add(theme.label("Times are observations in UTC. Legacy records have unknown server/dimension/time.", 480));
+        if (loadedServer != null && storageFolder == null)
+            list.add(theme.label("Saving blocked: unreadable stash file. Original files are preserved.", 480));
+
         // Clear buttons
         WHorizontalList hl = theme.horizontalList();
+        String displayedServer = loadedServer;
         WButton clear = hl.add(theme.button("Clear Chunks")).widget();
         WButton resetTracers = hl.add(theme.button("Reset Tracers")).widget();
 
         list.add(hl);
 
         WTable table = new WTable();
-        if (!chunks.isEmpty()) list.add(table);
+        list.add(table).expandX();
 
         clear.action = () -> {
+            ensureContext();
+            if (!Objects.equals(displayedServer, loadedServer)) { warning("Server changed. Reopen the stash list before clearing it."); return; }
             chunks.clear();
             table.clear();
             tracerPositions.clear();
+            dirty = true;
+            saveRecords();
         };
 
         resetTracers.action = () -> {
@@ -318,32 +406,37 @@ public class StashFinder extends Module {
 
     private void fillTable(GuiTheme theme, WTable table) {
         for (Chunk chunk : chunks) {
-            table.add(theme.label("Pos: " + chunk.chunkPos.getMiddleBlockX() + ", " + chunk.chunkPos.getMiddleBlockZ())).padRight(10);
+            String summary = chunk.chunkPos.getMiddleBlockX() + ", " + chunk.chunkPos.getMiddleBlockZ()
+                + " / " + chunk.dimension + " / " + CoordinateContext.time(chunk.lastSeen);
+            table.add(theme.label(summary, 350)).padRight(10).widget().tooltip = chunk.context();
             table.add(theme.label("Total: " + chunk.getTotal())).padRight(10);
 
-            WCheckbox visible = table.add(theme.checkbox(tracerPositions.containsKey(chunk.chunkPos))).widget();
+            WCheckbox visible = table.add(theme.checkbox(tracerPositions.containsKey(chunk))).widget();
             visible.action = () -> {
-                if (visible.checked) {
+                if (visible.checked && current(chunk)) {
                     double y = mc.player != null ? mc.player.getEyeY() : 0.0;
-                    tracerPositions.put(chunk.chunkPos, new Vec3(chunk.chunkPos.getMiddleBlockX(), y, chunk.chunkPos.getMiddleBlockZ()));
-                } else tracerPositions.remove(chunk.chunkPos);
+                    tracerPositions.put(chunk, new Vec3(chunk.chunkPos.getMiddleBlockX(), y, chunk.chunkPos.getMiddleBlockZ()));
+                } else { visible.checked = false; tracerPositions.remove(chunk); }
             };
 
             WButton open = table.add(theme.button("Open")).widget();
             open.action = () -> mc.gui.setScreen(new ChunkScreen(theme, chunk));
 
             WButton gotoBtn = table.add(theme.button("Goto")).widget();
-            gotoBtn.action = () -> PathManagers.get().moveTo(new BlockPos(chunk.chunkPos.getMiddleBlockX(), 0, chunk.chunkPos.getMiddleBlockZ()), true);
+            gotoBtn.action = () -> navigate(chunk);
+            gotoBtn.tooltip = "Only available on the recorded server and dimension.";
 
             WMinus delete = table.add(theme.minus()).widget();
             delete.action = () -> {
+                ensureContext();
+                if (!Objects.equals(chunk.server, loadedServer) && !CoordinateContext.UNKNOWN.equals(chunk.server)) return;
                 if (chunks.remove(chunk)) {
-                    tracerPositions.remove(chunk.chunkPos);
+                    tracerPositions.remove(chunk);
                     table.clear();
                     fillTable(theme, table);
 
-                    saveJson();
-                    saveCsv();
+                    dirty = true;
+                    saveRecords();
                 }
             };
 
@@ -351,86 +444,101 @@ public class StashFinder extends Module {
         }
     }
 
+    public static Chunk recordObservation(List<Chunk> records, Chunk observation) {
+        int index = records.indexOf(observation);
+        if (index < 0) { records.add(observation); return null; }
+        Chunk previous = records.set(index, observation);
+        observation.firstSeen = previous.firstSeen > 0 ? previous.firstSeen : observation.firstSeen;
+        observation.lastSeen = Math.max(previous.lastSeen, observation.lastSeen);
+        return previous;
+    }
+
     private void load() {
-        boolean loaded = false;
-
-        // Try to load json
-        Path jsonFile = getJsonFile();
-        if (Files.exists(jsonFile)) {
-            try (BufferedReader reader = Files.newBufferedReader(jsonFile)) {
-                chunks = GSON.fromJson(reader, new TypeToken<List<Chunk>>() {
-                }.getType());
-                loaded = true;
-            } catch (Exception _) {
-                if (chunks == null) chunks = new ArrayList<>();
-            }
+        dirty = false; saveTicks = 0;
+        chunks = new ArrayList<>();
+        List<Chunk> queued = PERSISTENCE.pendingSnapshot(storageFolder);
+        if (queued != null) { chunks = new ArrayList<>(queued); return; }
+        Path json = getJsonFile(), csv = getCsvFile();
+        // Old files had neither reliable server identity nor a dimension. Keep them explicitly unknown.
+        if (!Files.exists(json) && !Files.exists(csv)) {
+            Path legacy = Client33.FOLDER.toPath().resolve("stashes").resolve(Utils.getFileWorldName());
+            json = legacy.resolve("stashes.json"); csv = legacy.resolve("stashes.csv");
         }
-
-        // Try to load csv
-        Path csvFile = getCsvFile();
-        if (!loaded && Files.exists(csvFile)) {
-            try (BufferedReader reader = Files.newBufferedReader(csvFile)) {
-                reader.readLine(); // Skip header
-
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    String[] values = StringUtils.split(line, ',');
-                    if (values.length != CSV_FIELDS.size()) {
-                        throw new IllegalStateException("Invalid CSV row length: expected " + CSV_FIELDS.size() + ", got " + values.length);
-                    }
-
-                    Chunk chunk = new Chunk(new ChunkPos(Integer.parseInt(values[0]), Integer.parseInt(values[1])));
-
-                    for (int i = 2; i < CSV_FIELDS.size(); i++) {
-                        CSV_FIELDS.get(i).setter().accept(chunk, Integer.parseInt(values[i]));
-                    }
-
-                    chunks.add(chunk);
-                }
-            } catch (Exception _) {
-                if (chunks == null) chunks = new ArrayList<>();
-            }
+        try {
+            if (Files.exists(json)) chunks = readJson(json);
+            else if (Files.exists(csv)) chunks = readCsv(csv);
+        } catch (Exception failure) {
+            Client33.LOG.error("Cannot read stash records; original files were left intact", failure);
+            // Do not overwrite an unreadable file with an empty list.
+            storageFolder = null;
         }
     }
 
-    private void saveCsv() {
-        try {
-            Path csvFile = getCsvFile();
-            Files.createDirectories(csvFile.getParent());
-            try (BufferedWriter writer = Files.newBufferedWriter(csvFile)) {
-                String header = CSV_FIELDS.stream()
-                    .map(CsvField::name)
-                    .collect(Collectors.joining(","));
-                writer.write(header);
+    public static List<Chunk> readJson(Path file) throws IOException {
+        try (BufferedReader reader = Files.newBufferedReader(file)) {
+            List<Chunk> records = GSON.fromJson(reader, new TypeToken<List<Chunk>>() {}.getType());
+            if (records == null) throw new IOException("Stash list is null");
+            for (Chunk record : records) {
+                if (record == null || record.chunkPos == null) throw new IOException("Invalid stash record");
+                record.normalize();
+            }
+            return new ArrayList<>(records);
+        }
+    }
+
+    public static List<Chunk> readCsv(Path file) throws IOException {
+        List<Chunk> records = new ArrayList<>();
+        try (BufferedReader reader = Files.newBufferedReader(file)) {
+            String header = reader.readLine();
+            if (header == null) throw new IOException("Stash CSV header is missing");
+            List<String> columns = CoordinateContext.parseCsv(header);
+            if (!columns.contains("x") || !columns.contains("z") || new HashSet<>(columns).size() != columns.size())
+                throw new IOException("Invalid stash CSV header");
+            for (String line; (line = reader.readLine()) != null;) {
+                if (line.isBlank()) continue;
+                List<String> values = CoordinateContext.parseCsv(line);
+                if (values.size() != columns.size())
+                    throw new IOException("Invalid stash CSV row length");
+                Chunk chunk = new Chunk(new ChunkPos(Integer.parseInt(values.get(columns.indexOf("x"))), Integer.parseInt(values.get(columns.indexOf("z")))));
+                for (CsvField field : CSV_FIELDS) {
+                    int column = columns.indexOf(field.name());
+                    if (field.setter() != null && column >= 0) field.setter().accept(chunk, Integer.parseInt(values.get(column)));
+                }
+                if (columns.contains("server") && columns.contains("dimension") && columns.contains("firstSeenUTC") && columns.contains("lastSeenUTC")) {
+                    chunk.server = values.get(columns.indexOf("server")); chunk.dimension = values.get(columns.indexOf("dimension"));
+                    chunk.firstSeen = CoordinateContext.parseTime(values.get(columns.indexOf("firstSeenUTC"))); chunk.lastSeen = CoordinateContext.parseTime(values.get(columns.indexOf("lastSeenUTC")));
+                }
+                chunk.normalize(); records.add(chunk);
+            }
+        }
+        return records;
+    }
+
+    public static void writeJson(Path file, List<Chunk> records) throws IOException {
+        AtomicFile.write(file, staging -> {
+            try (BufferedWriter writer = Files.newBufferedWriter(staging)) { GSON.toJson(records, writer); }
+        });
+    }
+
+    public static void writeCsv(Path file, List<Chunk> records) throws IOException {
+        AtomicFile.write(file, staging -> {
+            try (BufferedWriter writer = Files.newBufferedWriter(staging)) {
+                writer.write(CSV_FIELDS.stream().map(CsvField::name).collect(Collectors.joining(","))
+                    + ",server,dimension,firstSeenUTC,lastSeenUTC");
                 writer.newLine();
-                for (Chunk chunk : chunks) {
-                    chunk.write(writer);
-                }
+                for (Chunk chunk : records) chunk.write(writer);
             }
-        } catch (IOException e) {
-            Client33.LOG.error("Error while writing the stash list to csv", e);
-        }
+        });
     }
 
-    private void saveJson() {
-        try {
-            Path jsonFile = getJsonFile();
-            Files.createDirectories(jsonFile.getParent());
-            try (BufferedWriter writer = Files.newBufferedWriter(jsonFile)) {
-                GSON.toJson(chunks, writer);
-            }
-        } catch (IOException e) {
-            Client33.LOG.error("Error while writing the stash list to json", e);
-        }
+    private void saveRecords() {
+        if (!dirty || storageFolder == null) return;
+        PERSISTENCE.submit(storageFolder, chunks);
+        dirty = false;
     }
 
-    private Path getJsonFile() {
-        return Path.of(Client33.FOLDER.getPath(), "stashes", Utils.getFileWorldName(), "stashes.json");
-    }
-
-    private Path getCsvFile() {
-        return Path.of(Client33.FOLDER.getPath(), "stashes", Utils.getFileWorldName(), "stashes.csv");
-    }
+    private Path getJsonFile() { return storageFolder.resolve("stashes.json"); }
+    private Path getCsvFile() { return storageFolder.resolve("stashes.csv"); }
 
     @Override
     public String getInfoString() {
@@ -442,22 +550,25 @@ public class StashFinder extends Module {
             .setStyle(Style.EMPTY
                 .withColor(ChatFormatting.WHITE)
                 .applyFormat(ChatFormatting.UNDERLINE)
-                .withHoverEvent(new HoverEvent.ShowText(Component.literal("Path to stash")))
-                .withClickEvent(new RunnableClickEvent(() -> PathManagers.get().moveTo(new BlockPos(chunk.chunkPos.getMiddleBlockX(), 0, chunk.chunkPos.getMiddleBlockZ()), true))));
+                .withHoverEvent(new HoverEvent.ShowText(Component.literal(chunk.context() + " / Path to stash")))
+                .withClickEvent(new RunnableClickEvent(() -> navigate(chunk))));
 
         MutableComponent message = Component.literal("Found stash at ")
             .withStyle(ChatFormatting.GRAY)
             .append(Component.literal("[").withStyle(ChatFormatting.GRAY))
             .append(coords)
             .append(Component.literal("]").withStyle(ChatFormatting.GRAY))
-            .append(Component.literal(".").withStyle(ChatFormatting.GRAY));
+            .append(Component.literal(" / " + chunk.context()).withStyle(ChatFormatting.GRAY));
 
         ChatUtils.sendMsg(message);
     }
 
     @EventHandler
     private void onRender3D(Render3DEvent event) {
-        if (tracerPositions.isEmpty() || mc.player == null) return;
+        if (mc.player == null || mc.level == null) return;
+        ensureContext();
+        if (tracerPositions.isEmpty()) return;
+        tracerPositions.keySet().removeIf(chunk -> !current(chunk));
 
         double playerX = mc.player.getX();
         double playerZ = mc.player.getZ();
@@ -505,27 +616,57 @@ public class StashFinder extends Module {
 
     public static class Chunk {
         public final ChunkPos chunkPos;
-        public int chests, barrels, shulkers, enderChests, furnaces, dispensersDroppers, hoppers;
+        public String server = CoordinateContext.UNKNOWN, dimension = CoordinateContext.UNKNOWN;
+        public long firstSeen, lastSeen;
+        public int chests, barrels, shulkers, enderChests, furnaces, dispensersDroppers, hoppers, otherStorage;
 
         public Chunk(ChunkPos chunkPos) {
             this.chunkPos = chunkPos;
         }
 
+        public Chunk copy() {
+            Chunk copy = new Chunk(chunkPos);
+            copy.server = server; copy.dimension = dimension;
+            copy.firstSeen = firstSeen; copy.lastSeen = lastSeen;
+            copy.chests = chests; copy.barrels = barrels; copy.shulkers = shulkers;
+            copy.enderChests = enderChests; copy.furnaces = furnaces;
+            copy.dispensersDroppers = dispensersDroppers; copy.hoppers = hoppers;
+            copy.otherStorage = otherStorage;
+            return copy;
+        }
+
+        public void normalize() {
+            if (server == null || server.isBlank()) server = CoordinateContext.UNKNOWN;
+            if (dimension == null || dimension.isBlank()) dimension = CoordinateContext.UNKNOWN;
+            firstSeen = Math.max(0, firstSeen); lastSeen = Math.max(firstSeen, lastSeen);
+        }
+
+        public boolean matches(String server, String dimension) {
+            return !CoordinateContext.UNKNOWN.equals(this.server) && !CoordinateContext.UNKNOWN.equals(this.dimension)
+                && Objects.equals(this.server, server) && Objects.equals(this.dimension, dimension);
+        }
+
+        public String context() {
+            return "Server: " + server + " / " + dimension + " / First: " + CoordinateContext.time(firstSeen)
+                + " / Last: " + CoordinateContext.time(lastSeen);
+        }
+
         public int getTotal() {
-            return chests + barrels + shulkers + enderChests + furnaces + dispensersDroppers + hoppers;
+            return chests + barrels + shulkers + enderChests + furnaces + dispensersDroppers + hoppers + otherStorage;
         }
 
         public void write(BufferedWriter writer) throws IOException {
             String line = CSV_FIELDS.stream()
                 .map(field -> String.valueOf(field.getter().applyAsInt(this)))
                 .collect(Collectors.joining(","));
-            writer.write(line);
+            writer.write(line + "," + CoordinateContext.csv(server) + "," + CoordinateContext.csv(dimension)
+                + "," + CoordinateContext.csv(CoordinateContext.csvTime(firstSeen)) + "," + CoordinateContext.csv(CoordinateContext.csvTime(lastSeen)));
             writer.newLine();
         }
 
         public boolean countsEqual(Chunk c) {
             if (c == null) return false;
-            return chests == c.chests && barrels == c.barrels && shulkers == c.shulkers && enderChests == c.enderChests && furnaces == c.furnaces && dispensersDroppers == c.dispensersDroppers && hoppers == c.hoppers;
+            return chests == c.chests && barrels == c.barrels && shulkers == c.shulkers && enderChests == c.enderChests && furnaces == c.furnaces && dispensersDroppers == c.dispensersDroppers && hoppers == c.hoppers && otherStorage == c.otherStorage;
         }
 
         @Override
@@ -533,12 +674,12 @@ public class StashFinder extends Module {
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
             Chunk chunk = (Chunk) o;
-            return Objects.equals(chunkPos, chunk.chunkPos);
+            return Objects.equals(chunkPos, chunk.chunkPos) && Objects.equals(server, chunk.server) && Objects.equals(dimension, chunk.dimension);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(chunkPos);
+            return Objects.hash(chunkPos, server, dimension);
         }
     }
 
@@ -554,6 +695,9 @@ public class StashFinder extends Module {
         @Override
         public void initWidgets() {
             WTable t = add(theme.table()).expandX().widget();
+
+            t.add(theme.label(chunk.context(), 440)).expandX();
+            t.row();
 
             // Total
             t.add(theme.label("Total:"));
@@ -590,6 +734,9 @@ public class StashFinder extends Module {
 
             t.add(theme.label("Hoppers:"));
             t.add(theme.label(chunk.hoppers + ""));
+            t.row();
+            t.add(theme.label("Other selected storage:"));
+            t.add(theme.label(chunk.otherStorage + ""));
         }
     }
 }

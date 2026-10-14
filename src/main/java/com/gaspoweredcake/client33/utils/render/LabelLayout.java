@@ -20,7 +20,9 @@ public final class LabelLayout {
             double y = bottom - h - attempt * (h + 5);
             if (y < 4 || y + h > height - 4) continue;
             Rect candidate = new Rect(x, y, w, h);
-            if (occupied.stream().noneMatch(candidate::overlaps)) { occupied.add(candidate); return candidate; }
+            boolean overlap = false;
+            for (Rect rect : occupied) if (candidate.overlaps(rect)) { overlap = true; break; }
+            if (!overlap) { occupied.add(candidate); return candidate; }
         }
         return null;
     }

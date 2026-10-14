@@ -107,28 +107,36 @@ public class Client33GuiTheme extends GuiTheme {
         .build()
     );
 
-    public enum Appearance { Euphoric, Custom }
+    public final Setting<Double> cornerRadius = sgGeneral.add(new DoubleSetting.Builder().name("corner-radius").description("Control and panel rounding. Zero gives sharp corners.").defaultValue(4).range(0, 16).build());
+    public final Setting<Double> fontScale = sgGeneral.add(new DoubleSetting.Builder().name("font-scale").description("Text scale independent of control spacing.").defaultValue(1).range(0.75, 1.5).onSliderRelease().onChanged(value -> { if (mc.gui.screen() instanceof WidgetScreen screen) screen.reload(); }).build());
+    public final Setting<Boolean> accentGradient = sgGeneral.add(new BoolSetting.Builder().name("accent-gradient").description("Blend the panel accent into a second color.").defaultValue(false).build());
+    public final Setting<SettingColor> gradientEnd = sgGeneral.add(new ColorSetting.Builder().name("gradient-end").defaultValue(new SettingColor(130, 90, 245)).visible(accentGradient::get).build());
+    @Override public double fontScale() { return fontScale.get(); }
+
+    public enum Appearance { Crimson, Euphoric, Custom }
     public final Setting<Appearance> appearance = sgGeneral.add(new EnumSetting.Builder<Appearance>()
-        .name("appearance").description("Euphoric cyan/violet surfaces, or your custom colors.").defaultValue(Appearance.Euphoric).build());
+        .name("appearance").description("Crimson high-contrast panels, Euphoric lighting, or custom colors.").defaultValue(Appearance.Crimson).build());
     public final Setting<Boolean> animatedAtmosphere = sgGeneral.add(new BoolSetting.Builder()
         .name("animated-atmosphere").description("Slowly moving aurora behind panels. Disable for a still background.").defaultValue(true).build());
     public final Setting<Double> atmosphereIntensity = sgGeneral.add(new DoubleSetting.Builder()
         .name("atmosphere-intensity").description("Brightness of decorative lighting; zero removes the lighting.").defaultValue(0.65).range(0, 1).build());
     private double atmosphereClock;
     public boolean euphoric() { return appearance.get() == Appearance.Euphoric; }
-    public Color accent() { return euphoric() ? com.gaspoweredcake.client33.utils.render.EuphoricPalette.sample(0, 255) : accentColor.get(); }
+    public Color accent() { return appearance.get() == Appearance.Crimson ? new Color(224, 48, 54) : euphoric() ? com.gaspoweredcake.client33.utils.render.EuphoricPalette.sample(0, 255) : accentColor.get(); }
     public Color surface() { return surface(false, false); }
     public Color surface(boolean pressed, boolean hovered) { return surface(pressed, hovered, false); }
     public Color surface(boolean pressed, boolean hovered, boolean bypassDisableHoverColor) {
+        if (appearance.get() == Appearance.Crimson) return pressed ? new Color(57, 32, 35) : hovered && (bypassDisableHoverColor || !disableHoverColor) ? new Color(39, 39, 43) : new Color(20, 20, 23);
         if (!euphoric()) return backgroundColor.get(pressed, hovered, bypassDisableHoverColor);
         return pressed ? new Color(50, 42, 77, 255) : hovered && (bypassDisableHoverColor || !disableHoverColor)
             ? new Color(31, 34, 57, 252) : new Color(15, 19, 32, 250);
     }
     public Color outline(boolean pressed, boolean hovered) {
+        if (appearance.get() == Appearance.Crimson) return pressed || hovered && !disableHoverColor ? accent() : new Color(61, 61, 66);
         if (!euphoric()) return outlineColor.get(pressed, hovered);
         return pressed || hovered && !disableHoverColor ? accent() : new Color(62, 64, 92);
     }
-    public Color moduleSurface() { return euphoric() ? new Color(34, 33, 61, 245) : moduleBackground.get(); }
+    public Color moduleSurface() { return appearance.get() == Appearance.Crimson ? new Color(74, 28, 32) : euphoric() ? new Color(34, 33, 61, 245) : moduleBackground.get(); }
 
     // Colors
 

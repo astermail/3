@@ -28,7 +28,6 @@ import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.MaceItem;
 import net.minecraft.world.item.component.ItemAttributeModifiers;
@@ -166,7 +165,26 @@ public class DamageUtils {
     }
 
     public static float getAttackDamage(LivingEntity attacker, Entity target, ItemStack weapon) {
+        return weaponDamage(attacker, target, weapon, false);
+    }
+
+    /** Candidate selection compares complete attacks, independently of the currently held cooldown. */
+    public static float getChargedAttackDamage(LivingEntity attacker, Entity target, ItemStack weapon) {
+        return weaponDamage(attacker, target, weapon, true);
+    }
+
+    private static float weaponDamage(LivingEntity attacker, Entity target, ItemStack weapon, boolean charged) {
         AttributeInstance original = attacker.getAttribute(Attributes.ATTACK_DAMAGE);
+        AttributeInstance copy = weaponDamageAttribute(original, attacker.getMainHandItem().get(DataComponents.ATTRIBUTE_MODIFIERS), weapon.get(DataComponents.ATTRIBUTE_MODIFIERS));
+
+        float itemDamage = (float) copy.getValue();
+        DamageSource damageSource = attacker instanceof Player player ? mc.level.damageSources().playerAttack(player) : mc.level.damageSources().mobAttack(attacker);
+
+        float damage = modifyAttackDamage(attacker, target, weapon, damageSource, itemDamage, charged);
+        return calculateReductions(damage, target, damageSource);
+    }
+
+    public static AttributeInstance weaponDamageAttribute(AttributeInstance original, ItemAttributeModifiers held, ItemAttributeModifiers replacement) {
         AttributeInstance copy = new AttributeInstance(Attributes.ATTACK_DAMAGE, _ -> {
         });
 
@@ -174,23 +192,24 @@ public class DamageUtils {
         for (AttributeModifier modifier : original.getModifiers()) {
             copy.addTransientModifier(modifier);
         }
-        copy.removeModifier(Item.BASE_ATTACK_DAMAGE_ID);
-
-        ItemAttributeModifiers attributeModifiers = weapon.get(DataComponents.ATTRIBUTE_MODIFIERS);
-        if (attributeModifiers != null) {
-            attributeModifiers.forEach(EquipmentSlot.MAINHAND, (entry, modifier) -> {
-                if (entry == Attributes.ATTACK_DAMAGE) copy.addOrUpdateTransientModifier(modifier);
+        if (held != null) {
+            held.forEach(EquipmentSlot.MAINHAND, (entry, modifier) -> {
+                if (entry.equals(Attributes.ATTACK_DAMAGE)) copy.removeModifier(modifier.id());
             });
         }
-
-        float itemDamage = (float) copy.getValue();
-        DamageSource damageSource = attacker instanceof Player player ? mc.level.damageSources().playerAttack(player) : mc.level.damageSources().mobAttack(attacker);
-
-        float damage = modifyAttackDamage(attacker, target, weapon, damageSource, itemDamage);
-        return calculateReductions(damage, target, damageSource);
+        if (replacement != null) {
+            replacement.forEach(EquipmentSlot.MAINHAND, (entry, modifier) -> {
+                if (entry.equals(Attributes.ATTACK_DAMAGE)) copy.addOrUpdateTransientModifier(modifier);
+            });
+        }
+        return copy;
     }
 
     private static float modifyAttackDamage(LivingEntity attacker, Entity target, ItemStack weapon, DamageSource damageSource, float damage) {
+        return modifyAttackDamage(attacker, target, weapon, damageSource, damage, false);
+    }
+
+    private static float modifyAttackDamage(LivingEntity attacker, Entity target, ItemStack weapon, DamageSource damageSource, float damage, boolean charged) {
         // Get enchant damage
         Object2IntMap<Holder<Enchantment>> enchantments = new Object2IntOpenHashMap<>();
         Utils.getEnchantments(weapon, enchantments);
@@ -218,7 +237,7 @@ public class DamageUtils {
 
         // Factor charge
         if (attacker instanceof Player playerEntity) {
-            float charge = playerEntity.getAttackStrengthScale(0.5f);
+            float charge = charged ? 1 : playerEntity.getAttackStrengthScale(0.5f);
             damage *= 0.2f + charge * charge * 0.8f;
             enchantDamage *= charge;
 

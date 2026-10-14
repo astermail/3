@@ -117,12 +117,12 @@ public abstract class PlayerMixin extends LivingEntity {
 
     @WrapWithCondition(method = "causeExtraKnockback", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/player/Player;setDeltaMovement(Lnet/minecraft/world/phys/Vec3;)V"))
     private boolean keepSprint$setDeltaMovement(Player instance, Vec3 vec3d) {
-        return Modules.get().get(Sprint.class).stopSprinting();
+        return instance != mc.player || Modules.get().get(Sprint.class).stopSprinting();
     }
 
     @WrapWithCondition(method = "causeExtraKnockback", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/player/Player;setSprinting(Z)V"))
     private boolean keepSprint$setSprinting(Player instance, boolean b) {
-        return Modules.get().get(Sprint.class).stopSprinting();
+        return instance != mc.player || Modules.get().get(Sprint.class).stopSprinting();
     }
 
     @ModifyReturnValue(method = "blockInteractionRange", at = @At("RETURN"))

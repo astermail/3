@@ -48,6 +48,7 @@ public class HudEditorScreen extends WidgetScreen implements Snapper.Container {
 
     private int lastMouseX, lastMouseY;
 
+    private HudElement resizing;
     private boolean pressed;
     private int clickX, clickY;
     private final List<HudElement> selection = new ArrayList<>();
@@ -78,6 +79,11 @@ public class HudEditorScreen extends WidgetScreen implements Snapper.Container {
         mouseY *= s;
 
         if (click.button() == InputConstants.MOUSE_BUTTON_LEFT) {
+            var candidate = getHovered((int) mouseX, (int) mouseY);
+            if (candidate != null && !candidate.pinned && candidate instanceof com.gaspoweredcake.client33.systems.hud.ResizableHud
+                && mouseX >= candidate.getX2() - 12 && mouseY >= candidate.getY2() - 12) {
+                resizing = candidate; return true;
+            }
             pressed = true;
             selectionSnapBox = null;
 
@@ -105,6 +111,10 @@ public class HudEditorScreen extends WidgetScreen implements Snapper.Container {
         mouseX *= s;
         mouseY *= s;
 
+        if (resizing instanceof com.gaspoweredcake.client33.systems.hud.ResizableHud panel) {
+            panel.resizePanel((int) mouseX - resizing.getX(), (int) mouseY - resizing.getY());
+            return;
+        }
         if (dragging && !selection.isEmpty()) {
             if (selectionSnapBox == null) selectionSnapBox = new SelectionBox();
             snapper.move(selectionSnapBox, (int) mouseX - lastMouseX, (int) mouseY - lastMouseY);
@@ -118,6 +128,7 @@ public class HudEditorScreen extends WidgetScreen implements Snapper.Container {
 
     @Override
     public boolean mouseReleased(@NonNull MouseButtonEvent click) {
+        if (resizing != null && click.button() == InputConstants.MOUSE_BUTTON_LEFT) { resizing = null; return true; }
         double s = mc.getWindow().getGuiScale();
 
         double mouseX = click.x();

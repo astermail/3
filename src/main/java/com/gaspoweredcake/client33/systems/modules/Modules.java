@@ -552,6 +552,7 @@ public class Modules extends System<Modules> {
     }
 
     private void initWorld() {
+        add(new RandomTeleport());
         add(new Ambience());
         add(new AutoBreed());
         add(new AutoBrewer());

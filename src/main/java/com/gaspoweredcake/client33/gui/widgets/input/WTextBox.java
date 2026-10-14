@@ -262,8 +262,6 @@ public abstract class WTextBox extends WWidget {
             resetSelection();
         } else if (input.key() == KEY_RETURN || input.key() == KEY_NUMPADENTER) {
             setFocused(false);
-
-            if (actionOnUnfocused != null) actionOnUnfocused.run();
             return true;
         } else if (input.key() == KEY_TAB && completionsW != null) {
             String completion = ((ICompletionItem) completionsW.cells.get(getSelectedCompletion()).widget()).getCompletion();
@@ -711,8 +709,7 @@ public abstract class WTextBox extends WWidget {
 
     @Override
     public void setFocused(boolean focused) {
-        if (this.focused && !focused && actionOnUnfocused != null) actionOnUnfocused.run();
-
+        boolean wasUnfocused = this.focused && !focused;
         boolean wasJustFocused = focused && !this.focused;
 
         this.focused = focused;
@@ -720,6 +717,8 @@ public abstract class WTextBox extends WWidget {
         resetSelection();
 
         if (wasJustFocused) onCursorChanged();
+        // Publish focus loss before callbacks, which may close or rebuild this screen.
+        if (wasUnfocused && actionOnUnfocused != null) actionOnUnfocused.run();
     }
 
     public void setCursorMax() {

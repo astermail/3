@@ -72,7 +72,7 @@ public class Hud extends System<Hud> implements Iterable<HudElement> {
     public final Setting<List<SettingColor>> textColors = sgGeneral.add(new ColorListSetting.Builder()
         .name("text-colors")
         .description("Colors used for the Text element.")
-        .defaultValue(List.of(new SettingColor(), new SettingColor(175, 175, 175), new SettingColor(25, 225, 25), new SettingColor(225, 25, 25)))
+        .defaultValue(List.of(new SettingColor(), new SettingColor(173, 182, 204), new SettingColor(109, 214, 199), new SettingColor(238, 137, 172)))
         .build()
     );
 
@@ -136,9 +136,47 @@ public class Hud extends System<Hud> implements Iterable<HudElement> {
         register(CombatHud.INFO);
         register(MapHud.INFO);
         register(KeyboardHud.INFO);
+        register(ModuleStatusHud.INFO);
 
         // Default config
         if (isFirstInit) resetToDefaultElements();
+    }
+
+    /** Refresh existing layouts without changing element positions or enabled modules. */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public void applyEuphoricStyle() {
+        customFont.set(true);
+        textColors.set(List.of(new SettingColor(232, 237, 248), new SettingColor(164, 179, 206), new SettingColor(113, 215, 215), new SettingColor(210, 163, 238)));
+        for (var element : elements) {
+            var mode = element.settings.get("color-mode");
+            if (element instanceof ActiveModulesHud && mode != null) ((Setting) mode).set(ActiveModulesHud.ColorMode.Euphoric);
+            if (element instanceof ActiveModulesHud || element instanceof TextHud) {
+                var background = element.settings.get("background", Boolean.class);
+                if (background != null) background.set(true);
+                var color = element.settings.get("background-color", SettingColor.class);
+                if (color != null) color.set(new SettingColor(16, 20, 32, 195));
+                var shadow = element.settings.get("shadow", Boolean.class);
+                if (shadow != null) shadow.set(false);
+            }
+            element.onFontChanged();
+        }
+    }
+
+    public void pinModule(String moduleName) {
+        if (hasModulePanel(moduleName)) return;
+        var panel = new ModuleStatusHud();
+        panel.moduleName.set(moduleName);
+        add(panel, 30, 30, XAnchor.Left, YAnchor.Top);
+    }
+
+    public boolean hasModulePanel(String moduleName) {
+        return elements.stream().anyMatch(element -> element instanceof ModuleStatusHud panel && panel.moduleName.get().equals(moduleName));
+    }
+
+    public void reattachModule(String moduleName) {
+        for (HudElement element : List.copyOf(elements)) {
+            if (element instanceof ModuleStatusHud panel && panel.moduleName.get().equals(moduleName)) panel.remove();
+        }
     }
 
     public void register(HudElementInfo<?> info) {

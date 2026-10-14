@@ -3,11 +3,9 @@ package com.gaspoweredcake.client33.gui.widgets;
 import com.gaspoweredcake.client33.gui.renderer.GuiRenderer;
 import com.gaspoweredcake.client33.gui.themes.client33.Client33GuiTheme;
 import com.gaspoweredcake.client33.gui.utils.CardLayout;
-import com.gaspoweredcake.client33.gui.utils.TextWrapping;
 import com.gaspoweredcake.client33.systems.modules.Module;
 import com.gaspoweredcake.client33.utils.render.color.Color;
 import net.minecraft.client.input.MouseButtonEvent;
-import java.util.List;
 import java.util.function.BooleanSupplier;
 import static com.gaspoweredcake.client33.Client33.mc;
 
@@ -20,7 +18,6 @@ public class WModuleCard extends WWidget {
     private final Runnable toggle, star;
     private CardLayout.Action captured;
     private int button = -1;
-    private List<String> lines = List.of();
     public WModuleCard(Module module, double width, Runnable favoriteChanged) {
         this(module.title, module.description, module.category.name, width, module::isActive, () -> module.favorite,
             () -> {}, module::toggle,
@@ -31,15 +28,17 @@ public class WModuleCard extends WWidget {
         BooleanSupplier enabled, BooleanSupplier favorite, Runnable open, Runnable toggle, Runnable star) {
         this.title = title; this.description = description; this.category = category; logicalWidth = width;
         this.enabled = enabled; this.favorite = favorite; this.open = open; this.toggle = toggle; this.star = star;
-        tooltip = description + "\nClick card or right-click for settings. Use the switch to enable.";
+        tooltip = description + "\nClick row or right-click for settings. Use the switch to enable.";
     }
     @Override protected void onCalculateSize() {
         width = theme.scale(logicalWidth);
-        height = theme.scale(94) + theme.textHeight() * 3;
-        lines = TextWrapping.wrap(description, Math.max(1, width - theme.scale(32)), theme::textWidth);
+        height = theme.scale(16) + theme.textHeight();
     }
     private CardLayout.Action at(MouseButtonEvent click) {
-        return CardLayout.action((click.x() - x) / theme.scale(1), (click.y() - y) / theme.scale(1), width / theme.scale(1), height / theme.scale(1));
+        double localX = click.x() - x;
+        if (localX >= width - theme.scale(66)) return CardLayout.Action.Toggle;
+        if (localX >= width - theme.scale(100)) return CardLayout.Action.Favorite;
+        return CardLayout.Action.Settings;
     }
     @Override public boolean onMouseClicked(MouseButtonEvent click, boolean doubled) {
         if (!isOver(click.x(), click.y()) || click.button() > 1 || click.button() < 0) return false;
@@ -57,28 +56,20 @@ public class WModuleCard extends WWidget {
     @Override protected void onRender(GuiRenderer renderer, double mouseX, double mouseY, double delta) {
         var client = theme instanceof Client33GuiTheme value ? value : null;
         Color accent = client == null ? new Color(115, 224, 230) : client.accent();
-        Color border = enabled.getAsBoolean() ? new Color(accent).a(150) : mouseOver ? new Color(110, 117, 153) : new Color(48, 54, 75);
         Color surface = client == null ? new Color(18, 23, 37) : client.surface(captured != null, mouseOver);
-        double radius = theme.scale(16), line = theme.scale(1), pad = theme.scale(16), text = theme.textHeight();
-        renderer.roundedQuad(x, y + theme.scale(3), width, height, radius, new Color(0, 0, 0, 50));
-        renderer.roundedQuad(x, y, width, height, radius, border);
-        renderer.roundedQuad(x + line, y + line, width - line * 2, height - line * 2, radius - line, surface);
-        renderer.text(category, x + pad, y + theme.scale(12), theme.textSecondaryColor(), false);
-        double icon = theme.scale(16);
-        renderer.quad(x + width - theme.scale(29), y + theme.scale(12), icon, icon,
+        double pad = theme.scale(12), text = theme.textHeight();
+        renderer.roundedQuad(x, y, width, height, theme.scale(3), surface);
+        if (enabled.getAsBoolean()) renderer.quad(x, y + theme.scale(8), theme.scale(2), height - theme.scale(16), accent);
+        boolean showCategory = width >= theme.scale(430);
+        double available = Math.max(1, width - theme.scale(showCategory ? 230 : 124));
+        renderer.text(CardLayout.ellipsize(title, available, theme::textWidth), x + pad, y + (height - text) / 2, theme.textColor(), false);
+        if (showCategory) renderer.text(CardLayout.ellipsize(category, theme.scale(92), theme::textWidth), x + width - theme.scale(210), y + (height - text) / 2, theme.textSecondaryColor(), false);
+        double icon = theme.scale(14);
+        renderer.quad(x + width - theme.scale(92), y + (height - icon) / 2, icon, icon,
             favorite.getAsBoolean() ? GuiRenderer.FAVORITE_YES : GuiRenderer.FAVORITE_NO,
             favorite.getAsBoolean() ? new Color(249, 211, 133) : theme.textSecondaryColor());
-        renderer.text(CardLayout.ellipsize(title, width - pad * 2, theme::textWidth), x + pad, y + theme.scale(32), theme.textColor(), false);
-        double descriptionY = y + theme.scale(40) + text;
-        for (int i = 0; i < Math.min(2, lines.size()); i++) {
-            String value = i == 1 && lines.size() > 2 ? CardLayout.ellipsize(lines.get(i) + " ...", width - pad * 2, theme::textWidth) : lines.get(i);
-            renderer.text(value, x + pad, descriptionY + i * text, theme.textSecondaryColor(), false);
-        }
-        double footer = y + height - theme.scale(34);
-        renderer.text("Open settings", x + pad, footer + (theme.scale(24) - text) / 2, theme.textSecondaryColor(), false);
-        double switchX = x + width - theme.scale(80), switchW = theme.scale(64), switchH = theme.scale(24);
-        renderer.roundedQuad(switchX, footer, switchW, switchH, switchH / 2, enabled.getAsBoolean() ? new Color(accent).a(55) : new Color(54, 60, 79));
-        renderer.roundedQuad(switchX + theme.scale(7), footer + theme.scale(7), theme.scale(10), theme.scale(10), theme.scale(5), enabled.getAsBoolean() ? accent : theme.textSecondaryColor());
-        renderer.text(enabled.getAsBoolean() ? "On" : "Off", switchX + theme.scale(24), footer + (switchH - text) / 2, enabled.getAsBoolean() ? accent : theme.textColor(), false);
+        double switchX = x + width - theme.scale(60), switchH = theme.scale(22), switchY = y + (height - switchH) / 2;
+        renderer.roundedQuad(switchX, switchY, theme.scale(50), switchH, theme.scale(4), enabled.getAsBoolean() ? new Color(accent).a(45) : new Color(54, 54, 59));
+        renderer.text(enabled.getAsBoolean() ? "On" : "Off", switchX + theme.scale(10), y + (height - text) / 2, enabled.getAsBoolean() ? accent : theme.textSecondaryColor(), false);
     }
 }

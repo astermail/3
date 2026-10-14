@@ -22,6 +22,7 @@ import com.gaspoweredcake.client33.gui.widgets.pressable.WButton;
 import com.gaspoweredcake.client33.gui.widgets.WModuleCard;
 import com.gaspoweredcake.client33.gui.widgets.pressable.WNavigationItem;
 import com.gaspoweredcake.client33.gui.utils.CardLayout;
+import com.gaspoweredcake.client33.gui.utils.FeatureSearch;
 import com.gaspoweredcake.client33.settings.Setting;
 import com.gaspoweredcake.client33.settings.SettingGroup;
 import com.gaspoweredcake.client33.systems.config.Config;
@@ -45,7 +46,8 @@ import static com.mojang.blaze3d.platform.InputConstants.*;
 public class ModulesScreen extends TabScreen {
     private WTextBox search;
     private WView results;
-    private WVerticalList navigation;
+    private WHorizontalList navigation;
+    private int page, pageCount = 1;
     private WLabel summary;
     private Category category;
     private Filter filter = Filter.All;
@@ -63,51 +65,53 @@ public class ModulesScreen extends TabScreen {
     public void initWidgets() {
         libraryFilter = null;
         categoryFilter = null;
-        compact = CardLayout.compact(getWindowWidth() / theme.scale(1));
-        contentWidth = Math.max(180, Math.min(1060, getWindowWidth() / theme.scale(1) - (compact ? 72 : 272)));
-        WPanel window = add(new WPanel()).center().widget();
+        compact = getWindowWidth() / theme.scale(1) < 700;
+        double workspaceWidth = Math.min(1080, getWindowWidth() / theme.scale(1) - 40);
+        contentWidth = Math.max(180, workspaceWidth - 24);
+        WPanel window = add(new WPanel(true)).center().widget();
         window.spacing = 0;
-        WHorizontalList body = window.add(theme.horizontalList()).pad(18).widget();
-        body.spacing = 20;
-        double viewHeight = Math.max(theme.scale(60), getWindowHeight() - theme.scale(compact ? 252 : 192));
-        navigation = null;
-        if (!compact) {
-            WView sidebar = body.add(theme.view()).top().widget();
-            sidebar.maxHeight = Math.max(theme.scale(80), getWindowHeight() - theme.scale(80));
-            navigation = sidebar.add(theme.verticalList()).minWidth(154).expandX().widget();
-            navigation.spacing = 2;
-            refreshNavigation();
-        }
+        WHorizontalList body = window.add(theme.horizontalList()).pad(12).widget();
+        body.spacing = 12;
+        double viewHeight = Math.min(theme.scale(540), getWindowHeight() - theme.scale(100));
         WAdaptiveContent content = body.add(new WAdaptiveContent()).top().minWidth(contentWidth).widget();
-        content.availableHeight = Math.max(theme.textHeight(), getWindowHeight() - theme.scale(72));
-        content.spacing = 12;
+        content.availableHeight = viewHeight;
+        content.spacing = 8;
         WHorizontalList heading = content.add(theme.horizontalList()).expandX().widget();
-        var titles = heading.add(theme.verticalList()).expandCellX().widget();
-        titles.add(theme.label(compact ? "33 / Discover" : "Discover", true));
-        titles.add(theme.label("A space for your play style.").color(theme.textSecondaryColor()));
-        heading.add(theme.button("Close")).right().widget().action = this::onClose;
+        heading.add(theme.label("33 / Modules", true)).expandCellX();
+        var schematics = Tabs.get(com.gaspoweredcake.client33.gui.tabs.builtin.SchematicsTab.class);
+        if (schematics != null) heading.add(theme.button("Schematics")).widget().action = () -> schematics.openScreen(theme);
+        var pages = Tabs.get().stream().map(WPageNavigation.Choice::new).toArray(WPageNavigation.Choice[]::new);
+        var destinationPicker = heading.add(theme.dropdown(pages, new WPageNavigation.Choice(tab))).widget();
+        destinationPicker.action = () -> { if (destinationPicker.get().tab() != tab) destinationPicker.get().tab().openScreen(theme); };
+        heading.add(theme.button("Close")).widget().action = this::onClose;
 
+        navigation = content.add(theme.horizontalList()).expandX().widget();
+        navigation.spacing = 2;
+        refreshNavigation();
+        WHorizontalList filters = content.add(theme.horizontalList()).expandX().widget();
+        libraryFilter = filters.add(theme.dropdown(Filter.values(), filter)).widget();
+        libraryFilter.action = () -> select(category, libraryFilter.get());
         if (compact) {
-            WHorizontalList filters = content.add(theme.horizontalList()).expandX().widget();
-            libraryFilter = filters.add(theme.dropdown(Filter.values(), filter)).expandX().widget();
-            libraryFilter.action = () -> select(null, libraryFilter.get());
-            var choices = new java.util.ArrayList<CategoryChoice>();
-            choices.add(new CategoryChoice(null));
+            var choices = new java.util.ArrayList<CategoryChoice>(); choices.add(new CategoryChoice(null));
             for (Category value : Modules.loopCategories()) choices.add(new CategoryChoice(value));
             categoryFilter = filters.add(theme.dropdown(choices.toArray(CategoryChoice[]::new), new CategoryChoice(category))).expandX().widget();
-            categoryFilter.action = () -> select(categoryFilter.get().category(), filter == Filter.Studio ? Filter.All : filter);
+            categoryFilter.action = () -> select(categoryFilter.get().category(), filter);
         }
-        if (compact) content.add(new WPageNavigation(tab)).expandX();
+        filters.add(theme.button("Previous")).right().expandCellX().widget().action = () -> { page = Math.max(0, page - 1); refreshResults(); };
+        filters.add(theme.button("Next")).widget().action = () -> { page = Math.min(pageCount - 1, page + 1); refreshResults(); };
+
         WHorizontalList toolbar = content.add(theme.horizontalList()).expandX().widget();
-        search = toolbar.add(theme.textBox(query, "Search modules or settings...")).minWidth(Math.min(220, contentWidth - 70)).expandX().widget();
+        search = toolbar.add(theme.textBox(query, "Search all features or settings...")).minWidth(Math.min(220, contentWidth - 70)).expandX().widget();
         search.action = () -> {
-            query = search.get();
+            query = search.get(); page = 0;
+            results.resetScroll();
             refreshResults();
         };
         toolbar.add(theme.button("Clear")).widget().action = () -> {
             search.set("");
-            query = "";
+            query = ""; page = 0;
             search.setFocused(true);
+            results.resetScroll();
             refreshResults();
         };
 
@@ -119,7 +123,7 @@ public class ModulesScreen extends TabScreen {
         refreshResults();
 
         if (theme.modulesHelpText()) {
-            content.add(theme.label("Click a card for settings. Switch to enable. Ctrl+F to search.", contentWidth)
+            content.add(theme.label("Click a row for settings  /  Ctrl+F to search", contentWidth)
                 .color(theme.textSecondaryColor()));
         }
     }
@@ -139,24 +143,18 @@ public class ModulesScreen extends TabScreen {
     private void refreshNavigation() {
         if (navigation == null) return;
         navigation.clear();
-        navigation.add(theme.label("33", true)).padLeft(12).padTop(4);
-        navigation.add(theme.label("MAKE IT YOURS").color(theme.textSecondaryColor())).padLeft(12).padBottom(18);
-        for (Filter value : Filter.values()) {
-            navigation.add(new WNavigationItem(value.toString(), category == null && filter == value, () -> select(null, value))).expandX();
-        }
-        navigation.add(theme.label("CATEGORIES").color(theme.textSecondaryColor())).padLeft(12).padTop(18).padBottom(6);
+        if (compact) return;
+        navigation.add(new com.gaspoweredcake.client33.gui.widgets.pressable.WWorkspaceTab("All", category == null, () -> select(null, filter))).expandX();
         for (Category value : Modules.loopCategories()) {
-            navigation.add(new WNavigationItem(value.name, category == value, () -> select(value, Filter.All))).expandX();
-        }
-        navigation.add(theme.label("WORKSPACE").color(theme.textSecondaryColor())).padLeft(12).padTop(18).padBottom(6);
-        for (var page : Tabs.get()) {
-            if (page != tab) navigation.add(new WNavigationItem(page.name, false, () -> page.openScreen(theme))).expandX();
+            navigation.add(new com.gaspoweredcake.client33.gui.widgets.pressable.WWorkspaceTab(value.name, category == value, () -> select(value, filter))).expandX();
         }
     }
 
     private void select(Category category, Filter filter) {
+        page = 0;
         this.category = category;
         this.filter = filter;
+        results.resetScroll();
         refreshNavigation();
         if (libraryFilter != null) libraryFilter.set(filter);
         if (categoryFilter != null) categoryFilter.set(new CategoryChoice(category));
@@ -166,40 +164,44 @@ public class ModulesScreen extends TabScreen {
     private void refreshResults() {
         if (results == null) return;
         results.clear();
-        results.resetScroll();
         String text = query.strip().toLowerCase(Locale.ROOT);
         if (filter == Filter.Studio && category == null && text.isEmpty()) {
-            summary.set("VISUAL STUDIO  /  Build your signature");
+            summary.set("VISUALS  /  Preview and configure");
             buildStudio();
             return;
         }
         var modules = Modules.get().getAll().stream()
-            .filter(module -> !Config.get().hiddenModules.get().contains(module))
-            .filter(module -> category == null || module.category == category)
-            .filter(module -> filter != Filter.Favorites || module.favorite)
-            .filter(module -> filter != Filter.Enabled || module.isActive())
+            .filter(module -> !text.isEmpty() || !Config.get().hiddenModules.get().contains(module))
+            .filter(module -> !text.isEmpty() || category == null || module.category == category)
+            .filter(module -> !text.isEmpty() || filter != Filter.Favorites || module.favorite)
+            .filter(module -> !text.isEmpty() || filter != Filter.Enabled || module.isActive())
             .filter(module -> matches(module, text))
             .sorted(Comparator.comparingInt((Module module) -> searchRank(module, text))
                 .thenComparing(module -> module.title, String.CASE_INSENSITIVE_ORDER))
             .toList();
-        summary.set((category == null ? filter.toString() : category.name) + "  /  " + modules.size() + " modules");
+        summary.set((!text.isEmpty() ? "Search all features" : category == null ? filter.toString() : category.name) + "  /  " + modules.size() + " modules");
 
         if (modules.isEmpty()) {
             results.add(theme.label("No modules found.")).pad(8);
-            results.add(theme.label("Try another category or clear your search.").color(theme.textSecondaryColor()));
+            results.add(theme.label("Try a module name, alias or setting name.").color(theme.textSecondaryColor()));
             return;
         }
 
-        WTable grid = results.add(theme.table()).expandX().widget();
-        grid.horizontalSpacing = 12;
-        grid.verticalSpacing = 12;
-        int columns = CardLayout.columns(contentWidth);
-        double cardWidth = (contentWidth - 20 - (columns - 1) * 12) / columns;
+        results.spacing = 3;
+        int columns = contentWidth >= 980 ? 3 : contentWidth >= 560 ? 2 : 1;
+        int rows = Math.max(2, (int) ((Math.min(theme.scale(540), getWindowHeight() - theme.scale(100)) - theme.scale(180)) / (theme.textHeight() + theme.scale(19))));
+        int perPage = rows * columns;
+        pageCount = Math.max(1, (modules.size() + perPage - 1) / perPage);
+        page = Math.min(page, pageCount - 1);
+        summary.set((!text.isEmpty() ? "Search all features" : category == null ? filter.toString() : category.name) + " / " + modules.size() + " modules  ·  " + (page + 1) + " / " + pageCount);
+        var grid = results.add(theme.table()).expandX().widget();
+        grid.horizontalSpacing = 10; grid.verticalSpacing = 3;
+        double rowWidth = (contentWidth - 12 - (columns - 1) * 10) / columns;
         int index = 0;
-        for (Module module : modules) {
-            grid.add(new WModuleCard(module, cardWidth, () -> {
+        for (Module module : modules.subList(page * perPage, Math.min(modules.size(), (page + 1) * perPage))) {
+            grid.add(new WModuleCard(module, rowWidth, () -> {
                 if (filter == Filter.Favorites) taskAfterRender = this::refreshResults;
-            })).expandX().top();
+            })).expandX();
             if (++index % columns == 0) grid.row();
         }
     }
@@ -291,26 +293,21 @@ public class ModulesScreen extends TabScreen {
     }
 
     private int searchRank(Module module, String query) {
-        String title = module.title.toLowerCase(Locale.ROOT);
-        if (Modules.normalizeName(module.name).equals(Modules.normalizeName(query))) return 0;
-        for (String alias : module.aliases) if (Modules.normalizeName(alias).equals(Modules.normalizeName(query))) return 0;
-        if (title.equals(query)) return 0;
-        if (title.startsWith(query)) return 1;
-        if (title.contains(query)) return 2;
-        return 3;
+        return FeatureSearch.rank(query, module.name, module.title, module.aliases);
     }
 
     private boolean matches(Module module, String query) {
         if (query.isEmpty()) return true;
-        if (Modules.normalizeName(module.name).contains(Modules.normalizeName(query))) return true;
-        for (String alias : module.aliases) if (Modules.normalizeName(alias).contains(Modules.normalizeName(query))) return true;
-        if ((module.title + " " + module.name + " " + module.description).toLowerCase(Locale.ROOT).contains(query)) return true;
+        var fields = new java.util.ArrayList<String>();
+        fields.add(module.name); fields.add(module.title); fields.add(module.description);
+        java.util.Collections.addAll(fields, module.aliases);
         for (SettingGroup group : module.settings) {
+            fields.add(group.name);
             for (Setting<?> setting : group) {
-                if (setting.title.toLowerCase(Locale.ROOT).contains(query)) return true;
+                fields.add(setting.name); fields.add(setting.title); fields.add(setting.description);
             }
         }
-        return false;
+        return FeatureSearch.matches(query, fields.toArray(String[]::new));
     }
 
     @EventHandler

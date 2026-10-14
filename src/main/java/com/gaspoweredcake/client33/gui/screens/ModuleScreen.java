@@ -37,9 +37,12 @@ public class ModuleScreen extends WindowScreen {
     private final Module module;
 
     private WContainer settingsContainer;
+    private com.gaspoweredcake.client33.gui.widgets.containers.WSettingsWorkspace workspace;
     private WKeybind keybind;
     private WCheckbox active;
+    private WButton statusButton;
     private String settingsQuery = "";
+    private boolean configuring;
 
     public ModuleScreen(GuiTheme theme, Module module) {
         super(theme, theme.favorite(module.favorite), module.title);
@@ -51,6 +54,7 @@ public class ModuleScreen extends WindowScreen {
 
     @Override
     public void initWidgets() {
+        settingsContainer = null; workspace = null; keybind = null;
         // Description
         add(theme.label(module.description, Math.min(600, getWindowWidth() / theme.scale(1) * 0.65)));
 
@@ -65,27 +69,49 @@ public class ModuleScreen extends WindowScreen {
         active = controls.add(theme.checkbox(module.isActive())).widget();
         active.action = () -> {
             if (module.isActive() != active.checked) module.toggle();
+            taskAfterRender = this::reload;
+        };
+        if (!module.isActive()) {
+            controls.add(theme.button(configuring ? "Hide settings" : "Configure")).widget().action = () -> {
+                configuring = !configuring;
+                taskAfterRender = this::reload;
+            };
+        }
+        var hud = com.gaspoweredcake.client33.systems.hud.Hud.get();
+        statusButton = controls.add(theme.button(hud.hasModulePanel(module.name) ? "Reattach status" : "Detach status")).widget();
+        statusButton.action = () -> {
+            if (hud.hasModulePanel(module.name)) {
+                hud.reattachModule(module.name);
+                taskAfterRender = this::reload;
+                return;
+            }
+            hud.pinModule(module.name);
+            Client33.mc.gui.setScreen(new com.gaspoweredcake.client33.systems.hud.screens.HudEditorScreen(theme));
         };
         controls.add(theme.button("Back to modules")).expandCellX().right().widget().action = this::onClose;
 
-        if (!module.settings.groups.isEmpty()) {
-            WTextBox search = add(theme.textBox(settingsQuery, "Find a setting...")).expandX().widget();
-            settingsContainer = add(theme.verticalList()).expandX().widget();
-            settingsContainer.add(theme.settings(module.settings, settingsQuery)).expandX();
-            search.action = () -> {
-                settingsQuery = search.get();
-                settingsContainer.clear();
-                settingsContainer.add(theme.settings(module.settings, settingsQuery)).expandX();
-            };
-        }
+        if (!module.isActive() && !configuring) {
+            add(theme.label("Configure settings before enabling, or assign a keybind below.").color(theme.textSecondaryColor()));
+        } else {
+            // Custom widget
+            WWidget widget = module.getWidget(theme);
 
-        // Custom widget
-        WWidget widget = module.getWidget(theme);
+            if (widget != null) {
+                add(theme.horizontalSeparator()).expandX();
+                Cell<WWidget> cell = add(widget);
+                if (widget instanceof WContainer) cell.expandX();
+            }
 
-        if (widget != null) {
-            add(theme.horizontalSeparator()).expandX();
-            Cell<WWidget> cell = add(widget);
-            if (widget instanceof WContainer) cell.expandX();
+            if (!module.settings.groups.isEmpty()) {
+                WTextBox search = add(theme.textBox(settingsQuery, "Find a setting...")).expandX().widget();
+                settingsContainer = add(theme.verticalList()).expandX().widget();
+                workspace = settingsContainer.add(new com.gaspoweredcake.client33.gui.widgets.containers.WSettingsWorkspace(module.settings, settingsQuery)).expandX().widget();
+                search.action = () -> {
+                    settingsQuery = search.get();
+                    settingsContainer.clear();
+                    workspace = settingsContainer.add(new com.gaspoweredcake.client33.gui.widgets.containers.WSettingsWorkspace(module.settings, settingsQuery)).expandX().widget();
+                };
+            }
         }
 
         // Bind
@@ -151,17 +177,21 @@ public class ModuleScreen extends WindowScreen {
     public void tick() {
         super.tick();
 
-        module.settings.tick(settingsContainer, theme, settingsQuery);
+        if (workspace != null) workspace.refreshIfNeeded();
+        if (statusButton != null) {
+            String label = com.gaspoweredcake.client33.systems.hud.Hud.get().hasModulePanel(module.name) ? "Reattach status" : "Detach status";
+            if (!label.equals(statusButton.getText())) statusButton.set(label);
+        }
     }
 
     @EventHandler
     private void onModuleBindChanged(ModuleBindChangedEvent event) {
-        keybind.reset();
+        if (keybind != null) keybind.reset();
     }
 
     @EventHandler
     private void onActiveModulesChanged(ActiveModulesChangedEvent event) {
-        this.active.checked = module.isActive();
+        if (this.active.checked != module.isActive()) { this.active.checked = module.isActive(); taskAfterRender = this::reload; }
     }
 
     @Override

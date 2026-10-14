@@ -13,9 +13,13 @@ import com.gaspoweredcake.client33.systems.modules.Module;
 import com.gaspoweredcake.client33.utils.Utils;
 import com.gaspoweredcake.client33.utils.combat.CombatTelemetry;
 import com.gaspoweredcake.client33.utils.render.NametagUtils;
+import com.gaspoweredcake.client33.utils.render.LabelLayout;
+import com.gaspoweredcake.client33.renderer.Renderer2D;
 import com.gaspoweredcake.client33.utils.render.color.Color;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.core.BlockPos;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.world.level.block.entity.SignBlockEntity;
 import net.minecraft.network.protocol.game.ClientboundDebugBlockValuePacket;
 import net.minecraft.network.protocol.game.ClientboundDebugChunkValuePacket;
 import net.minecraft.util.debug.DebugPoiInfo;
@@ -36,8 +40,9 @@ import java.util.concurrent.ArrayBlockingQueue;
 public class StructureESP extends Module {
     private final SettingGroup sg = settings.getDefaultGroup();
     private final Setting<Boolean> loadedPois = sg.add(new BoolSetting.Builder().name("loaded-pois").description("Scan loaded block-state palettes for registered 26.2 POIs (beds, workstations, portals, etc.).").defaultValue(true).build());
+    private final Setting<Boolean> signs = sg.add(new BoolSetting.Builder().name("sign-markers").description("Highlight loaded signs and show their received front text. Signs indicate activity, not a confirmed base or placement date.").defaultValue(true).build());
     private final Setting<Boolean> debugData = sg.add(new BoolSetting.Builder().name("received-debug-data").description("Render structure/POI debug data only when actually sent by the server; sends no debug subscription requests.").defaultValue(true).build());
-    private final Setting<List<Block>> markers = sg.add(new BlockListSetting.Builder().name("landmark-blocks").description("Additional loaded block markers. A block marker does not confirm a generated structure.").defaultValue(Blocks.SPAWNER, Blocks.TRIAL_SPAWNER, Blocks.VAULT, Blocks.SCULK_SHRIEKER).build());
+    private final Setting<List<Block>> markers = sg.add(new BlockListSetting.Builder().name("landmark-blocks").description("Additional loaded block markers. A block marker does not confirm a generated structure.").defaultValue(Blocks.SPAWNER, Blocks.TRIAL_SPAWNER, Blocks.VAULT, Blocks.SCULK_SHRIEKER, Blocks.SUSPICIOUS_SAND, Blocks.SUSPICIOUS_GRAVEL).build());
     private final Setting<Integer> budget = sg.add(new IntSetting.Builder().name("blocks-per-tick").description("Maximum detailed block checks per tick; nonmatching palettes are skipped.").defaultValue(2048).range(256, 16384).sliderRange(256, 8192).build());
     private final Setting<Integer> range = sg.add(new IntSetting.Builder().name("range").description("Discovery and render distance in blocks.").defaultValue(128).range(16, 512).sliderRange(16, 512).build());
     private final Setting<Integer> ttl = sg.add(new IntSetting.Builder().name("debug-expiry-seconds").description("Expire received debug observations after this interval.").defaultValue(120).range(5, 600).sliderRange(5, 600).build());
@@ -52,7 +57,7 @@ public class StructureESP extends Module {
     private ChunkAccess scanning;
     private int section, offset;
     private Object world;
-    public StructureESP() { super(Categories.Render, "structure-esp", "Loaded POI/landmark markers and server-sent 26.2 structure debug bounds. No hidden-data or seed inference."); }
+    public StructureESP() { super(Categories.Render, "structure-esp", "Loaded POI/landmark markers and server-sent 26.2 structure debug bounds. No hidden-data or seed inference.", "POI ESP", "Sign ESP", "Landmark Finder"); }
     private void clear() { points.clear(); structures.clear(); received.clear(); queue.clear(); scanning = null; section = offset = 0; world = mc.level; }
     @Override public void onActivate() { clear(); }
     @Override public void onDeactivate() { clear(); }
@@ -62,7 +67,7 @@ public class StructureESP extends Module {
             && (event.packet instanceof ClientboundDebugChunkValuePacket || event.packet instanceof ClientboundDebugBlockValuePacket))
             received.offer(new Pending(event.packet, mc.level));
     }
-    private boolean matches(BlockState state) { return (loadedPois.get() && PoiTypes.hasPoi(state)) || markers.get().contains(state.getBlock()); }
+    private boolean matches(BlockState state) { return (signs.get() && state.is(BlockTags.ALL_SIGNS)) || (loadedPois.get() && PoiTypes.hasPoi(state)) || markers.get().contains(state.getBlock()); }
     private boolean nearby(BlockPos pos) { return mc.player.distanceToSqr(pos.getX(), mc.player.getY(), pos.getZ()) <= range.get() * range.get(); }
     @EventHandler private void onTick(TickEvent.Post event) {
         if (world != mc.level) clear();
@@ -135,15 +140,41 @@ public class StructureESP extends Module {
     @EventHandler private void onLabels(Render2DEvent event) {
         if (!labels.get() || mc.player == null || world != mc.level) return;
         TextRenderer text = TextRenderer.get(); text.begin(event.graphics, 0.8);
+        Renderer2D.COLOR.begin();
+        double width = mc.getWindow().getWidth(), height = mc.getWindow().getHeight();
+        LabelLayout layout = new LabelLayout(width, height);
+        Vector3d projected = new Vector3d();
         int count = 0;
         for (var entry : points.entrySet()) {
+            if (count >= 32) break;
             if (!nearby(entry.getKey())) continue;
-            if (++count > 32) break;
             var point = entry.getKey();
-            var pos = new Vector3d(point.getX() + 0.5, point.getY() + 1.2, point.getZ() + 0.5);
-            if (NametagUtils.to2D(pos, 1, false)) text.render(entry.getValue().label, pos.x, pos.y, Color.WHITE, true);
+            projected.set(point.getX() + 0.5, point.getY() + 1.2, point.getZ() + 0.5);
+            if (!NametagUtils.to2D(projected, 1, false) || projected.z < 0 || projected.z > 1) continue;
+            String label = pointLabel(point, entry.getValue());
+            var rect = layout.place(projected.x, projected.y, text.getWidth(label) + 14, text.getHeight() + 10);
+            if (rect == null) continue;
+            Renderer2D.COLOR.quad(rect.x(), rect.y(), rect.width(), rect.height(), new Color(12, 16, 23, 218));
+            Renderer2D.COLOR.quad(rect.x(), rect.y(), 2, rect.height(), new Color(100, 215, 230, 210));
+            text.render(label, rect.x() + 7, rect.y() + 5, Color.WHITE, true);
+            count++;
         }
+        Renderer2D.COLOR.render();
         text.end();
+    }
+    private String pointLabel(BlockPos pos, Point point) {
+        if (!point.debug && signs.get() && mc.level.getBlockEntity(pos) instanceof SignBlockEntity sign) {
+            StringBuilder label = new StringBuilder("Sign / observed: ");
+            for (int line = 0; line < 4 && label.length() < 96; line++) {
+                String value = sign.getText(true).getMessage(line, true).getString().strip();
+                if (!value.isEmpty()) {
+                    if (label.length() > 17) label.append(" | ");
+                    label.append(value, 0, Math.min(value.length(), Math.max(0, 96 - label.length())));
+                }
+            }
+            return label.toString();
+        }
+        return point.label;
     }
     @Override public String getInfoString() { return points.size() + " POIs / " + structures.values().stream().mapToInt(s -> s.boxes.size()).sum() + " server bounds"; }
 }

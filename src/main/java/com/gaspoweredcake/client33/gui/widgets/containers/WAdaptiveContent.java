@@ -10,6 +10,8 @@ public class WAdaptiveContent extends WVerticalList {
             double fixed = height - results.height;
             results.maxHeight = Math.max(theme.textHeight(), availableHeight - fixed);
             results.calculateSize();
+            // Keep the search box stationary when filtering leaves only a few rows.
+            results.height = results.maxHeight;
             super.onCalculateSize();
         }
     }
