@@ -11,6 +11,7 @@ import com.gaspoweredcake.client33.Client33;
 import com.gaspoweredcake.client33.commands.commands.*;
 import com.gaspoweredcake.client33.events.game.GameJoinedEvent;
 import com.gaspoweredcake.client33.pathing.PathManagers;
+import com.gaspoweredcake.client33.pathing.BaritoneUtils;
 import com.gaspoweredcake.client33.utils.PostInit;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.multiplayer.ClientPacketListener;
@@ -68,6 +69,7 @@ public class Commands {
         add(new WaspCommand());
         add(new LocateCommand());
         add(new HelpCommand());
+        if (BaritoneUtils.IS_AVAILABLE) add(new SchematicCommand());
 
         COMMANDS.sort(Comparator.comparing(Command::getName));
 

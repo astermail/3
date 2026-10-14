@@ -52,7 +52,7 @@ public class ModuleScreen extends WindowScreen {
     @Override
     public void initWidgets() {
         // Description
-        add(theme.label(module.description, getWindowWidth() / 2.0));
+        add(theme.label(module.description, Math.min(600, getWindowWidth() / theme.scale(1) * 0.65)));
 
         if (module.addon != null && module.addon != Client33.ADDON) {
             WHorizontalList addon = add(theme.horizontalList()).expandX().widget();

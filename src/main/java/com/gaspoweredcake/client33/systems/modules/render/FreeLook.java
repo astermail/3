@@ -67,7 +67,7 @@ public class FreeLook extends Module {
     private CameraType prePers;
 
     public FreeLook() {
-        super(Categories.Render, "free-look", "Allows more rotation options in third person.");
+        super(Categories.Render, "free-look", "Allows more rotation options in third person.", "Freelook");
     }
 
     @Override

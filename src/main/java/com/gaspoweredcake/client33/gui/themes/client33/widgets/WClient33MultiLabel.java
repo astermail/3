@@ -18,7 +18,7 @@ public class WClient33MultiLabel extends WMultiLabel implements Client33Widget {
     @Override
     protected void onRender(GuiRenderer renderer, double mouseX, double mouseY, double delta) {
         double h = theme.textHeight(title);
-        Color defaultColor = theme().textColor.get();
+        Color defaultColor = theme().textColor();
 
         for (int i = 0; i < lines.size(); i++) {
             renderer.text(lines.get(i), x, y + h * i, color != null ? color : defaultColor, false);

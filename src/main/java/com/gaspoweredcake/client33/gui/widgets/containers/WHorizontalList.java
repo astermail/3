@@ -41,7 +41,7 @@ public class WHorizontalList extends WContainer {
     @Override
     protected void onCalculateWidgetPositions() {
         double x = this.x;
-        double fillXWidth = (width - calculatedWidth) / fillXCount;
+        double fillXWidth = fillXCount == 0 ? 0 : (width - calculatedWidth) / fillXCount;
 
         for (int i = 0; i < cells.size(); i++) {
             Cell<?> cell = cells.get(i);
@@ -53,7 +53,7 @@ public class WHorizontalList extends WContainer {
             cell.y = y + cell.padTop();
 
             cell.width = cell.widget().width;
-            cell.height = height - cell.padTop() - cell.padTop();
+            cell.height = Math.max(0, height - cell.padTop() - cell.padBottom());
 
             if (cell.expandCellX) cell.width += fillXWidth;
             cell.alignWidget();

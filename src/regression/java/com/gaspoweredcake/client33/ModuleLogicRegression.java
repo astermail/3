@@ -77,6 +77,10 @@ public final class ModuleLogicRegression {
         bounds.include(10, 10, 0.5);
         bounds.include(20, 20, 0.5);
         check(bounds.clip(800, 600), "A rejected entity must not poison the next entity");
+        SchematicRegression.run();
+        GuiRegression.run();
+        FeatureRegression.run();
+        SurvivalRegression.run();
         System.out.println("Module logic regressions passed.");
     }
 

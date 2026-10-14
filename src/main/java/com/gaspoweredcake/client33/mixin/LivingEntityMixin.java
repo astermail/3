@@ -103,6 +103,7 @@ public abstract class LivingEntityMixin extends Entity {
     @ModifyReturnValue(method = "hasEffect", at = @At("RETURN"))
     private boolean hasEffect(boolean original, Holder<MobEffect> effect) {
         if (effect == null || effect.value() == null) return original;
+        if ((Object) this == mc.player && Modules.get().get(com.gaspoweredcake.client33.systems.modules.player.AntiDebuff.class).blocks(effect.value())) return false;
         if (Modules.get().get(NoStatusEffects.class).shouldBlock(effect.value())) return false;
 
         return original;

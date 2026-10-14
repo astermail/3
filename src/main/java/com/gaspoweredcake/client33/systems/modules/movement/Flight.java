@@ -6,330 +6,265 @@
 package com.gaspoweredcake.client33.systems.modules.movement;
 
 import com.gaspoweredcake.client33.events.entity.player.PlayerMoveEvent;
+import com.gaspoweredcake.client33.events.game.GameLeftEvent;
 import com.gaspoweredcake.client33.events.packets.PacketEvent;
 import com.gaspoweredcake.client33.events.world.TickEvent;
-import com.gaspoweredcake.client33.mixin.LocalPlayerAccessor;
 import com.gaspoweredcake.client33.mixin.ServerboundMovePlayerPacketAccessor;
+import com.gaspoweredcake.client33.mixininterface.IVec3;
 import com.gaspoweredcake.client33.settings.*;
 import com.gaspoweredcake.client33.systems.modules.Categories;
 import com.gaspoweredcake.client33.systems.modules.Module;
-import com.gaspoweredcake.client33.mixininterface.IVec3;
-import com.gaspoweredcake.client33.utils.Utils;
-import com.gaspoweredcake.client33.utils.entity.EntityUtils;
+import com.gaspoweredcake.client33.systems.modules.Modules;
+import com.gaspoweredcake.client33.systems.modules.render.Freecam;
+import com.gaspoweredcake.client33.systems.modules.movement.elytrafly.ElytraFly;
+import com.gaspoweredcake.client33.utils.combat.CombatTelemetry;
+import com.gaspoweredcake.client33.utils.misc.Keybind;
+import com.gaspoweredcake.client33.utils.movement.FlightMotion;
+import com.gaspoweredcake.client33.utils.movement.FlightRecovery;
 import meteordevelopment.orbit.EventHandler;
 import meteordevelopment.orbit.EventPriority;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.game.ClientboundPlayerAbilitiesPacket;
+import net.minecraft.network.protocol.game.ClientboundPlayerPositionPacket;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
-import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.entity.MoverType;
+import net.minecraft.world.phys.Vec3;
+
+import java.util.concurrent.atomic.AtomicReference;
 
 public class Flight extends Module {
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
-    private final SettingGroup sgAntiKick = settings.createGroup("Anti Kick"); //Pog
+    private final SettingGroup sgRecovery = settings.createGroup("Server Recovery");
+    private final SettingGroup sgAntiKick = settings.createGroup("Anti Kick");
 
     private final Setting<Mode> mode = sgGeneral.add(new EnumSetting.Builder<Mode>()
         .name("mode")
-        .description("The mode for Flight.")
+        .description("Server only uses server-granted flight. Auto prefers granted flight, otherwise Velocity. Abilities changes local flags only.")
         .defaultValue(Mode.Auto)
-        .onChanged(mode -> {
-            if (!isActive() || !Utils.canUpdate()) return;
-            restoreAbilities();
-            resetAntiKick();
-            if (usesAbilities()) applyAbilities();
-        })
+        .onChanged(value -> resetControls())
         .build()
     );
-
     private final Setting<Double> speed = sgGeneral.add(new DoubleSetting.Builder()
-        .name("speed")
-        .description("Your speed when flying.")
-        .defaultValue(0.1)
-        .min(0.0)
-        .build()
+        .name("speed").description("Ability flight speed, or one tenth of Velocity movement in blocks/tick.")
+        .defaultValue(0.1).range(0, 1).sliderMax(0.3).build()
     );
-
     private final Setting<Boolean> verticalSpeedMatch = sgGeneral.add(new BoolSetting.Builder()
-        .name("vertical-speed-match")
-        .description("Matches your vertical speed to your horizontal speed, otherwise uses vanilla ratio.")
-        .defaultValue(false)
-        .build()
+        .name("vertical-speed-match").description("Matches vertical movement speed to horizontal speed; otherwise uses half speed.")
+        .defaultValue(false).build()
     );
-
     private final Setting<InputMode> inputMode = sgGeneral.add(new EnumSetting.Builder<InputMode>()
-        .name("input-mode")
-        .description("Player Input follows processed movement controls; Keybinds reads the bound keys directly.")
-        .defaultValue(InputMode.PlayerInput)
-        .visible(() -> mode.get() != Mode.Abilities)
-        .build()
+        .name("input-mode").description("Player Input uses processed movement; Keybinds reads bound key states.")
+        .defaultValue(InputMode.PlayerInput).visible(() -> mode.get() == Mode.Auto || mode.get() == Mode.Velocity).build()
     );
-
+    private final Setting<Double> acceleration = sgGeneral.add(new DoubleSetting.Builder()
+        .name("acceleration").description("Maximum horizontal and vertical speed change per tick in Velocity mode. Zero gives instant control.")
+        .defaultValue(0.2).range(0, 2).sliderMax(1).visible(() -> mode.get() == Mode.Auto || mode.get() == Mode.Velocity).build()
+    );
     private final Setting<Boolean> noSneak = sgGeneral.add(new BoolSetting.Builder()
-        .name("no-sneak")
-        .description("Prevents you from sneaking while flying.")
-        .defaultValue(false)
-        .visible(() -> mode.get() != Mode.Abilities)
-        .build()
+        .name("no-sneak").description("Suppresses the sneaking pose during Velocity flight; does not spoof ground support.")
+        .defaultValue(false).visible(() -> mode.get() == Mode.Auto || mode.get() == Mode.Velocity).build()
     );
-
+    private final Setting<Boolean> pauseOnCorrection = sgRecovery.add(new BoolSetting.Builder()
+        .name("pause-on-correction").description("Accept server corrections and pause controls instead of repeatedly fighting setbacks.")
+        .defaultValue(true).build()
+    );
+    private final Setting<Integer> correctionPause = sgRecovery.add(new IntSetting.Builder()
+        .name("correction-pause-ms").description("Pause after a server position correction. Teleports also cause corrections.")
+        .defaultValue(2000).range(250, 10000).sliderRange(250, 5000).visible(pauseOnCorrection::get).build()
+    );
+    private final Setting<Integer> correctionLimit = sgRecovery.add(new IntSetting.Builder()
+        .name("correction-limit").description("Corrections within ten seconds before holding controls until you resume or re-enable Flight.")
+        .defaultValue(3).range(1, 10).visible(pauseOnCorrection::get).build()
+    );
+    private final Setting<Keybind> resume = sgRecovery.add(new KeybindSetting.Builder()
+        .name("resume-flight").description("Clear the correction hold. Re-enable Flight if this key is unbound.")
+        .action(this::resumeControls).build()
+    );
     private final Setting<AntiKickMode> antiKickMode = sgAntiKick.add(new EnumSetting.Builder<AntiKickMode>()
-        .name("mode")
-        .description("The mode for anti kick.")
-        .defaultValue(AntiKickMode.Packet)
-        .build()
+        .name("mode").description("Optional vanilla floating workaround for ungranted flight. Does not bypass server anti-flight checks.")
+        .defaultValue(AntiKickMode.None).build()
     );
-
     private final Setting<Integer> delay = sgAntiKick.add(new IntSetting.Builder()
-        .name("delay")
-        .description("The amount of delay, in ticks, between flying down a bit and return to original position")
-        .defaultValue(20)
-        .min(1)
-        .sliderMax(200)
-        .build()
+        .name("delay").description("Ticks between downward pulses.").defaultValue(20).range(1, 200).build()
     );
-
-    // Anti Kick
     private final Setting<Integer> offTime = sgAntiKick.add(new IntSetting.Builder()
-        .name("off-time")
-        .description("The amount of delay, in ticks, to fly down a bit to reset floating ticks.")
-        .defaultValue(1)
-        .min(1)
-        .sliderRange(1, 20)
-        .build()
+        .name("off-time").description("Length of a downward pulse in ticks.").defaultValue(1).range(1, 20).build()
     );
 
-    private int delayLeft;
-    private int offLeft;
-    private boolean flip;
-    private float lastYaw;
-    private double lastPacketY = Double.MAX_VALUE;
-    private boolean savedAbilities;
-    private boolean savedAllowFlying;
-    private boolean savedFlying;
+    private record Permission(LocalPlayer player, ClientLevel world, boolean allowed, boolean flying, float speed) {}
+    private final AtomicReference<Permission> permissions = new AtomicReference<>();
+    private final FlightRecovery recovery = new FlightRecovery();
+    private volatile LocalPlayer ownedPlayer;
+    private volatile ClientLevel ownedWorld;
+    private volatile Connection connection;
+    private boolean savedAllowFlying, savedFlying;
     private float savedFlySpeed;
+    private boolean abilitiesApplied;
+    private boolean appliedAllowFlying, appliedFlying;
+    private float appliedFlySpeed;
+    private Vec3 startVelocity = Vec3.ZERO;
+    private Vec3 controlledVelocity = Vec3.ZERO;
+    private int pulseTicks;
+    private double lastPacketY = Double.NaN;
 
     public Flight() {
-        super(Categories.Movement, "flight", "Fly with server abilities or direct movement control.");
+        super(Categories.Movement, "flight", "Server-granted or controlled local flight, with smoothing and correction recovery. Server movement rules apply.");
     }
 
-    @Override
-    public void onActivate() {
-        if (!Utils.canUpdate()) return;
+    @Override public void onActivate() { clearSession(); ensureSession(); }
+    @Override public void onDeactivate() { restoreAbilities(); clearSession(); }
+    @EventHandler private void leave(GameLeftEvent event) { restoreAbilities(); clearSession(); }
+
+    private void clearSession() {
+        ownedPlayer = null; ownedWorld = null; connection = null;
+        permissions.set(null); recovery.reset(); abilitiesApplied = false;
+        startVelocity = controlledVelocity = Vec3.ZERO; pulseTicks = 0; lastPacketY = Double.NaN;
+    }
+
+    private void ensureSession() {
+        if (mc.player == null || mc.level == null) return;
+        if (ownedPlayer == mc.player && ownedWorld == mc.level) return;
+        // Never restore a previous world's abilities onto a new player.
+        clearSession();
         savedAllowFlying = mc.player.getAbilities().mayfly;
         savedFlying = mc.player.getAbilities().flying;
         savedFlySpeed = mc.player.getAbilities().getFlyingSpeed();
-        savedAbilities = true;
-        resetAntiKick();
-        if (usesAbilities()) applyAbilities();
+        ownedPlayer = mc.player; ownedWorld = mc.level;
+        connection = mc.getConnection() == null ? null : mc.getConnection().getConnection();
     }
 
-    @Override
-    public void onDeactivate() {
-        if (Utils.canUpdate()) restoreAbilities();
-        savedAbilities = false;
+    private void resumeControls() {
+        if (isActive()) { recovery.reset(); resetControls(); }
     }
 
-    @EventHandler
-    private void onPreTick(TickEvent.Pre event) {
-        if (!Utils.canUpdate()) return;
-        if (!usesAbilities()) {
-            mc.player.getAbilities().flying = false;
-            mc.player.setDeltaMovement(getFlightVelocity());
-        }
-        float currentYaw = mc.player.getYRot();
-        if (usesAbilities() && mc.player.fallDistance >= 3f && currentYaw == lastYaw && mc.player.getDeltaMovement().length() < 0.003d) {
-            mc.player.setYRot(currentYaw + (flip ? 1 : -1));
-            flip = !flip;
-        }
-        lastYaw = currentYaw;
+    private void resetControls() {
+        restoreAbilities(); startVelocity = controlledVelocity = Vec3.ZERO;
+        pulseTicks = 0; lastPacketY = Double.NaN;
     }
 
-    @EventHandler
-    private void onPostTick(TickEvent.Post event) {
-        if (!Utils.canUpdate()) return;
-        if (delayLeft > 0) delayLeft--;
-
-        if (offLeft <= 0 && delayLeft <= 0) {
-            delayLeft = delay.get();
-            offLeft = offTime.get();
-
-            if (antiKickMode.get() == AntiKickMode.Packet) {
-                // Resend movement packets
-                ((LocalPlayerAccessor) mc.player).client33$setPositionReminder(20);
-            }
-        } else if (delayLeft <= 0) {
-            boolean shouldReturn = false;
-
-            if (antiKickMode.get() == AntiKickMode.Normal) {
-                if (usesAbilities()) {
-                    mc.player.getAbilities().flying = false;
-                    shouldReturn = true;
-                }
-            } else if (antiKickMode.get() == AntiKickMode.Packet && offLeft == offTime.get()) {
-                // Resend movement packets
-                ((LocalPlayerAccessor) mc.player).client33$setPositionReminder(20);
-            }
-
-            offLeft--;
-
-            if (shouldReturn) return;
+    @EventHandler private void tick(TickEvent.Pre event) {
+        ensureSession();
+        if (ownedPlayer == null) return;
+        var permission = permissions.getAndSet(null);
+        if (permission != null && permission.player == ownedPlayer && permission.world == ownedWorld) {
+            savedAllowFlying = permission.allowed; savedFlying = permission.flying; savedFlySpeed = permission.speed;
         }
-
-        if (mc.player.getYRot() != lastYaw) mc.player.setYRot(lastYaw);
-
-        if (usesAbilities()) applyAbilities();
-        else {
-            mc.player.getAbilities().flying = false;
-            mc.player.setDeltaMovement(getFlightVelocity());
-            if (noSneak.get()) mc.player.setOnGround(false);
+        if (!controlsMovement()) { resetControls(); return; }
+        pulseTicks = (pulseTicks + 1) % (delay.get() + offTime.get());
+        if (usesAbilities()) {
+            applyAbilities();
+            if (antiKickMode.get() == AntiKickMode.Normal && downwardPulse() && !savedAllowFlying) mc.player.getAbilities().flying = false;
+        } else {
+            restoreAbilities();
+            startVelocity = controlledVelocity;
+            controlledVelocity = velocity();
+            mc.player.setDeltaMovement(controlledVelocity);
         }
     }
 
-    @EventHandler(priority = EventPriority.LOWEST)
-    private void onPlayerMove(PlayerMoveEvent event) {
-        if (event.type != MoverType.SELF || usesAbilities()) return;
-        Vec3 velocity = getFlightVelocity();
-        ((IVec3) event.movement).client33$set(velocity.x, velocity.y, velocity.z);
+    @EventHandler(priority = EventPriority.LOWEST) private void move(PlayerMoveEvent event) {
+        if (event.type != MoverType.SELF || !controlsMovement() || usesAbilities()) return;
+        // Re-read processed input after vanilla input polling, with one acceleration step per tick.
+        controlledVelocity = velocity();
+        ((IVec3) event.movement).client33$set(controlledVelocity.x, controlledVelocity.y, controlledVelocity.z);
+        mc.player.setDeltaMovement(controlledVelocity);
     }
 
-    private Vec3 getFlightVelocity() {
-        boolean keybinds = inputMode.get() == InputMode.Keybinds;
-        boolean forward = keybinds ? mc.options.keyUp.isDown() : mc.player.input.keyPresses.forward();
-        boolean backward = keybinds ? mc.options.keyDown.isDown() : mc.player.input.keyPresses.backward();
-        boolean left = keybinds ? mc.options.keyLeft.isDown() : mc.player.input.keyPresses.left();
-        boolean right = keybinds ? mc.options.keyRight.isDown() : mc.player.input.keyPresses.right();
-        boolean jump = keybinds ? mc.options.keyJump.isDown() : mc.player.input.keyPresses.jump();
-        boolean sneak = keybinds ? mc.options.keyShift.isDown() : mc.player.input.keyPresses.shift();
+    private Vec3 velocity() {
+        if (mc.gui.screen() != null) return Vec3.ZERO;
+        boolean bound = inputMode.get() == InputMode.Keybinds;
+        var keys = mc.player.input.keyPresses;
+        int forward = ((bound ? mc.options.keyUp.isDown() : keys.forward()) ? 1 : 0) - ((bound ? mc.options.keyDown.isDown() : keys.backward()) ? 1 : 0);
+        int strafe = ((bound ? mc.options.keyRight.isDown() : keys.right()) ? 1 : 0) - ((bound ? mc.options.keyLeft.isDown() : keys.left()) ? 1 : 0);
+        int vertical = ((bound ? mc.options.keyJump.isDown() : keys.jump()) ? 1 : 0) - ((bound ? mc.options.keyShift.isDown() : keys.shift()) ? 1 : 0);
+        double horizontal = speed.get() * (mc.player.isSprinting() ? 15 : 10);
+        double up = speed.get() * (verticalSpeedMatch.get() ? 10 : 5);
+        var target = FlightMotion.target(mc.player.getYRot(), forward, strafe, vertical, horizontal, up);
+        var smoothed = FlightMotion.approach(startVelocity, target, acceleration.get());
+        if (antiKickMode.get() == AntiKickMode.Normal && downwardPulse() && !savedAllowFlying && !mc.player.onGround())
+            return new Vec3(smoothed.x, Math.min(smoothed.y, -0.04), smoothed.z);
+        return smoothed;
+    }
 
-        Vec3 horizontal = Vec3.directionFromRotation(0, mc.player.getYRot()).scale((forward ? 1 : 0) - (backward ? 1 : 0))
-            .add(Vec3.directionFromRotation(0, mc.player.getYRot() + 90).scale((right ? 1 : 0) - (left ? 1 : 0)));
-        if (horizontal.lengthSqr() > 1) horizontal = horizontal.normalize();
-        double horizontalSpeed = speed.get() * (mc.player.isSprinting() ? 15 : 10);
-        double verticalSpeed = speed.get() * (verticalSpeedMatch.get() ? 10 : 5);
-        return new Vec3(horizontal.x * horizontalSpeed, ((jump ? 1 : 0) - (sneak ? 1 : 0)) * verticalSpeed, horizontal.z * horizontalSpeed);
+    /** Also gates fluid/sneak mixins, so a paused Flight does not alter ordinary movement. */
+    public boolean controlsMovement() {
+        return isActive() && ownedPlayer != null && ownedPlayer == mc.player && ownedWorld == mc.level
+            && mc.player.isAlive() && !mc.player.isPassenger() && !mc.player.isSpectator() && !mc.player.isFallFlying()
+            && !Modules.get().isActive(Freecam.class) && !Modules.get().isActive(ElytraFly.class)
+            && (mode.get() != Mode.Server || savedAllowFlying)
+            && (!pauseOnCorrection.get() || recovery.allows(CombatTelemetry.now()));
     }
 
     private boolean usesAbilities() {
-        return mode.get() == Mode.Abilities || (mode.get() == Mode.Auto && savedAllowFlying);
+        return mode.get() == Mode.Abilities || mode.get() == Mode.Server || (mode.get() == Mode.Auto && savedAllowFlying);
     }
-
-    private void resetAntiKick() {
-        delayLeft = delay.get();
-        offLeft = offTime.get();
-        lastPacketY = Double.MAX_VALUE;
-        flip = false;
-        lastYaw = mc.player.getYRot();
-    }
+    private boolean downwardPulse() { return pulseTicks >= delay.get(); }
 
     private void applyAbilities() {
-        if (mc.player.isSpectator()) return;
-        mc.player.getAbilities().mayfly = true;
-        mc.player.getAbilities().flying = true;
-        mc.player.getAbilities().setFlyingSpeed(speed.get().floatValue());
+        var abilities = mc.player.getAbilities();
+        // Server mode never manufactures permission; Abilities is explicitly a local-only mode.
+        appliedAllowFlying = usesAbilities() && (savedAllowFlying || mode.get() == Mode.Abilities);
+        appliedFlying = appliedAllowFlying;
+        appliedFlySpeed = mode.get() == Mode.Server ? savedFlySpeed : speed.get().floatValue();
+        boolean flightChanged = abilities.flying != appliedFlying;
+        abilities.mayfly = appliedAllowFlying; abilities.flying = appliedFlying; abilities.setFlyingSpeed(appliedFlySpeed);
+        abilitiesApplied = true;
+        if (savedAllowFlying && flightChanged) mc.player.onUpdateAbilities();
     }
-
     private void restoreAbilities() {
-        if (!savedAbilities) return;
-        mc.player.getAbilities().mayfly = savedAllowFlying;
-        mc.player.getAbilities().flying = savedFlying;
-        mc.player.getAbilities().setFlyingSpeed(savedFlySpeed);
+        if (!abilitiesApplied) return;
+        if (ownedPlayer != null && ownedPlayer == mc.player && ownedWorld == mc.level) {
+            var abilities = ownedPlayer.getAbilities();
+            boolean wasFlying = abilities.flying;
+            if (abilities.mayfly == appliedAllowFlying) abilities.mayfly = savedAllowFlying;
+            if (abilities.flying == appliedFlying) abilities.flying = savedFlying;
+            if (abilities.getFlyingSpeed() == appliedFlySpeed) abilities.setFlyingSpeed(savedFlySpeed);
+            if (savedAllowFlying && wasFlying != abilities.flying && mc.getConnection() != null
+                && mc.getConnection().getConnection() == connection) ownedPlayer.onUpdateAbilities();
+        }
+        abilitiesApplied = false;
     }
 
-    private void antiKickPacket(ServerboundMovePlayerPacket packet, double currentY) {
-        // maximum time we can be "floating" is 80 ticks, so 4 seconds max
-        if (this.delayLeft <= 0 && this.lastPacketY != Double.MAX_VALUE &&
-            shouldFlyDown(currentY, this.lastPacketY) && EntityUtils.isOnAir(mc.player)) {
-            // actual check is for >= -0.03125D, but we have to do a bit more than that
-            // due to the fact that it's a bigger or *equal* to, and not just a bigger than
-            ((ServerboundMovePlayerPacketAccessor) packet).client33$setY(lastPacketY - 0.03130D);
-        } else {
-            lastPacketY = currentY;
+    @EventHandler(priority = EventPriority.LOWEST) private void receive(PacketEvent.Receive event) {
+        if (event.isCancelled() || event.connection != connection || ownedPlayer == null) return;
+        if (event.packet instanceof ClientboundPlayerAbilitiesPacket packet) {
+            // Do not cancel permissions. Vanilla applies them on the client thread.
+            permissions.set(new Permission(ownedPlayer, ownedWorld, packet.canFly(), packet.isFlying(), packet.getFlyingSpeed()));
+        } else if (event.packet instanceof ClientboundPlayerPositionPacket && pauseOnCorrection.get()) {
+            recovery.corrected(CombatTelemetry.now(), correctionPause.get(), correctionLimit.get());
         }
     }
 
-    /**
-     * @see net.minecraft.network.protocol.game.ServerGamePacketListener#handleMovePlayer(ServerboundMovePlayerPacket)
-     */
-    @EventHandler
-    private void onSendPacket(PacketEvent.Send event) {
-        if (!(event.packet instanceof ServerboundMovePlayerPacket packet) || antiKickMode.get() != AntiKickMode.Packet)
-            return;
-
-        double currentY = packet.getY(Double.MAX_VALUE);
-        if (currentY != Double.MAX_VALUE) {
-            antiKickPacket(packet, currentY);
-        } else {
-            // if the packet is a Rot packet or an StatusOnly packet then we need to
-            // make it a PosRot packet or a Pos packet respectively, so it has a Y value
-            ServerboundMovePlayerPacket fullPacket;
-            if (packet.hasRotation()) {
-                fullPacket = new ServerboundMovePlayerPacket.PosRot(
-                    mc.player.getX(),
-                    mc.player.getY(),
-                    mc.player.getZ(),
-                    packet.getYRot(0),
-                    packet.getXRot(0),
-                    packet.isOnGround(),
-                    mc.player.horizontalCollision
-                );
-            } else {
-                fullPacket = new ServerboundMovePlayerPacket.Pos(
-                    mc.player.getX(),
-                    mc.player.getY(),
-                    mc.player.getZ(),
-                    packet.isOnGround(),
-                    mc.player.horizontalCollision
-                );
+    @EventHandler(priority = EventPriority.LOWEST) private void send(PacketEvent.Send event) {
+        if (event.isCancelled() || !controlsMovement() || savedAllowFlying || antiKickMode.get() != AntiKickMode.Packet
+            || !(event.packet instanceof ServerboundMovePlayerPacket packet)) return;
+        double currentY = packet.getY(mc.player.getY());
+        boolean pulse = downwardPulse() && !mc.player.onGround() && !Double.isNaN(lastPacketY) && currentY >= lastPacketY - 0.03130;
+        double y = pulse ? lastPacketY - 0.03130 : currentY;
+        if (pulse) {
+            if (packet.hasPosition()) ((ServerboundMovePlayerPacketAccessor) packet).client33$setY(y);
+            else {
+                event.cancel();
+                // Silent send prevents recursive event dispatch; only the downward pulse needs a full position.
+                if (packet.hasRotation()) event.sendSilently(new ServerboundMovePlayerPacket.PosRot(mc.player.getX(), y, mc.player.getZ(), packet.getYRot(0), packet.getXRot(0), packet.isOnGround(), mc.player.horizontalCollision));
+                else event.sendSilently(new ServerboundMovePlayerPacket.Pos(mc.player.getX(), y, mc.player.getZ(), packet.isOnGround(), mc.player.horizontalCollision));
             }
-            event.cancel();
-            antiKickPacket(fullPacket, mc.player.getY());
-            mc.getConnection().send(fullPacket);
         }
+        lastPacketY = y;
     }
 
-    @EventHandler
-    private void onReceivePacket(PacketEvent.Receive event) {
-        if (!Utils.canUpdate() || !(event.packet instanceof ClientboundPlayerAbilitiesPacket packet)) return;
-        if (savedAbilities) {
-            savedAllowFlying = packet.canFly();
-            savedFlying = packet.isFlying();
-            savedFlySpeed = packet.getFlyingSpeed();
-        }
-        if (!usesAbilities()) return;
-        event.cancel();
-        mc.player.getAbilities().invulnerable = packet.isInvulnerable();
-        mc.player.getAbilities().instabuild = packet.canInstabuild();
-        mc.player.getAbilities().setWalkingSpeed(packet.getWalkingSpeed());
-        applyAbilities();
+    public float getFlyingSpeed() { return -1; }
+    public boolean noSneak() { return controlsMovement() && !usesAbilities() && noSneak.get(); }
+    @Override public String getInfoString() {
+        if (mc.player == null) return "Waiting for world";
+        if (mode.get() == Mode.Server && !savedAllowFlying) return "Server flight not granted";
+        if (pauseOnCorrection.get() && !recovery.allows(CombatTelemetry.now())) return recovery.held() ? "Corrections: resume required" : "Server correction: paused";
+        if (!controlsMovement()) return "Controls paused";
+        return usesAbilities() ? (savedAllowFlying ? "Server abilities" : "Local abilities") : "Velocity";
     }
-
-    private boolean shouldFlyDown(double currentY, double lastY) {
-        if (currentY >= lastY) {
-            return true;
-        } else return lastY - currentY < 0.03130D;
-    }
-
-    public float getFlyingSpeed() {
-        return -1;
-    }
-
-    public boolean noSneak() {
-        return isActive() && !usesAbilities() && noSneak.get();
-    }
-
-    public enum Mode {
-        Auto,
-        Abilities,
-        Velocity
-    }
-
-    public enum InputMode {
-        PlayerInput,
-        Keybinds
-    }
-
-    public enum AntiKickMode {
-        Normal,
-        Packet,
-        None
-    }
+    public enum Mode { Auto, Abilities, Velocity, Server }
+    public enum InputMode { PlayerInput, Keybinds }
+    public enum AntiKickMode { Normal, Packet, None }
 }

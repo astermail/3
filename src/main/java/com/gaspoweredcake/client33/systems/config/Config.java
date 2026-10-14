@@ -31,6 +31,13 @@ public class Config extends System<Config> {
     private final SettingGroup sgChat = settings.createGroup("Chat");
     private final SettingGroup sgMisc = settings.createGroup("Misc");
 
+    public final Setting<Boolean> saferBaritoneBuilding = sgMisc.add(new BoolSetting.Builder()
+        .name("safer-baritone-building")
+        .description("During Baritone builds, disable sprinting/parkour/risky descents, limit planned falls to one block, and build one layer at a time from the bottom. Restore settings after building.")
+        .defaultValue(true)
+        .build()
+    );
+
     // Visual
 
     public final Setting<Boolean> customFont = sgVisual.add(new BoolSetting.Builder()

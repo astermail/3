@@ -52,7 +52,7 @@ public class ModuleArgumentType implements ArgumentType<Module> {
 
     @Override
     public <S> CompletableFuture<Suggestions> listSuggestions(CommandContext<S> context, SuggestionsBuilder builder) {
-        return SharedSuggestionProvider.suggest(Modules.get().getAll().stream().map(module -> module.name), builder);
+        return SharedSuggestionProvider.suggest(Modules.get().getAll().stream().flatMap(module -> java.util.stream.Stream.concat(java.util.stream.Stream.of(module.name), java.util.Arrays.stream(module.aliases).map(Modules::normalizeName))), builder);
     }
 
     @Override

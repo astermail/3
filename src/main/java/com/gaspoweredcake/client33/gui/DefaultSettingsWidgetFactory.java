@@ -92,7 +92,7 @@ public class DefaultSettingsWidgetFactory extends SettingsWidgetFactory {
 
         // Calculate width and set it as minimum width
         list.calculateSize();
-        list.minWidth = list.width;
+        list.minWidth = list.width / theme.scale(1);
 
         // Remove hidden settings
         for (RemoveInfo removeInfo : removeInfoList) {
@@ -125,7 +125,7 @@ public class DefaultSettingsWidgetFactory extends SettingsWidgetFactory {
                 removeInfo.markRowForRemoval();
             }
 
-            table.add(theme.label(setting.title)).top().marginTop(settingTitleTopMargin()).widget().tooltip = setting.description;
+            table.add(theme.label(setting.title, Math.min(220, Utils.getWindowWidth() / theme.scale(1) * 0.28))).top().marginTop(settingTitleTopMargin()).widget().tooltip = setting.description;
 
             Factory factory = getFactory(setting.getClass());
             if (factory != null) factory.create(table, setting);
@@ -196,7 +196,7 @@ public class DefaultSettingsWidgetFactory extends SettingsWidgetFactory {
     private void stringW(WTable table, StringSetting setting) {
         CharFilter filter = setting.filter == null ? (_, _) -> true : setting.filter;
         Cell<WTextBox> cell = table.add(theme.textBox(setting.get(), setting.placeholder, filter, setting.renderer));
-        if (setting.wide) cell.minWidth(Utils.getWindowWidth() - Utils.getWindowWidth() / 4.0);
+        if (setting.wide) cell.minWidth(Math.min(360, Utils.getWindowWidth() / theme.scale(1) * 0.45));
 
         WTextBox textBox = cell.expandX().widget();
         textBox.action = () -> setting.set(textBox.get());

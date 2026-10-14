@@ -16,7 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ActiveModulesHud extends HudElement {
-    public static final HudElementInfo<ActiveModulesHud> INFO = new HudElementInfo<>(Hud.GROUP, "active-modules", "Displays your active modules.", ActiveModulesHud::new);
+    public static final HudElementInfo<ActiveModulesHud> INFO = new HudElementInfo<>(Hud.GROUP, "active-modules", "Text GUI", "Displays your active modules.", ActiveModulesHud::new);
 
     private static final Color WHITE = new Color();
 

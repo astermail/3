@@ -36,9 +36,9 @@ public class WClient33Dropdown<T> extends WDropdown<T> implements Client33Widget
 
         String text = get().toString();
         double w = theme.textWidth(text);
-        renderer.text(text, x + pad + maxValueWidth / 2 - w / 2, y + pad, theme.textColor.get(), false);
+        renderer.text(text, x + pad + maxValueWidth / 2 - w / 2, y + pad, theme.textColor(), false);
 
-        renderer.rotatedQuad(x + pad + maxValueWidth + pad, y + pad, s, s, 0, GuiRenderer.TRIANGLE, theme.textColor.get());
+        renderer.rotatedQuad(x + pad + maxValueWidth + pad, y + pad, s, s, 0, GuiRenderer.TRIANGLE, theme.textColor());
     }
 
     private static class WRoot extends WDropdownRoot implements Client33Widget {
@@ -48,6 +48,10 @@ public class WClient33Dropdown<T> extends WDropdown<T> implements Client33Widget
             double s = theme.scale(2);
             Color c = theme.outlineColor.get();
 
+            renderer.quad(this, theme.surface());
+            if (canScroll && hasScrollBar) {
+                renderer.quad(handleX(), handleY(), handleWidth(), handleHeight(), theme.scrollbarColor.get(focused, handleMouseOver));
+            }
             renderer.quad(x, y + height - s, width, s, c);
             renderer.quad(x, y, s, height - s, c);
             renderer.quad(x + width - s, y, s, height - s, c);
@@ -67,7 +71,7 @@ public class WClient33Dropdown<T> extends WDropdown<T> implements Client33Widget
         protected void onRender(GuiRenderer renderer, double mouseX, double mouseY, double delta) {
             Client33GuiTheme theme = theme();
 
-            Color color = theme.backgroundColor.get(pressed, mouseOver, true);
+            Color color = new Color(theme.surface(pressed, mouseOver, true));
             int preA = color.a;
             color.a += color.a / 2;
             color.validate();
@@ -77,7 +81,7 @@ public class WClient33Dropdown<T> extends WDropdown<T> implements Client33Widget
             color.a = preA;
 
             String text = value.toString();
-            renderer.text(text, x + width / 2 - theme.textWidth(text) / 2, y + pad(), theme.textColor.get(), false);
+            renderer.text(text, x + width / 2 - theme.textWidth(text) / 2, y + pad(), theme.textColor(), false);
         }
     }
 }

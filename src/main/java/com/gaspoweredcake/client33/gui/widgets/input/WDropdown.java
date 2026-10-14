@@ -7,8 +7,8 @@ package com.gaspoweredcake.client33.gui.widgets.input;
 
 import com.gaspoweredcake.client33.gui.renderer.GuiRenderer;
 import com.gaspoweredcake.client33.gui.utils.Cell;
+import com.gaspoweredcake.client33.gui.utils.PopupBounds;
 import com.gaspoweredcake.client33.gui.widgets.WRoot;
-import com.gaspoweredcake.client33.gui.widgets.containers.WVerticalList;
 import com.gaspoweredcake.client33.gui.widgets.containers.WView;
 import com.gaspoweredcake.client33.gui.widgets.pressable.WPressable;
 import net.minecraft.client.input.MouseButtonEvent;
@@ -17,6 +17,7 @@ import net.minecraft.client.input.KeyEvent;
 import net.minecraft.util.Mth;
 
 import static com.gaspoweredcake.client33.utils.Utils.getWindowHeight;
+import static com.mojang.blaze3d.platform.InputConstants.*;
 
 public abstract class WDropdown<T> extends WPressable {
     public Runnable action;
@@ -29,6 +30,7 @@ public abstract class WDropdown<T> extends WPressable {
     protected WDropdownRoot root;
     protected boolean expanded;
     protected double animProgress;
+    private double contentHeight;
 
     public WDropdown(T[] values, T value) {
         this.values = values;
@@ -41,6 +43,7 @@ public abstract class WDropdown<T> extends WPressable {
         root = createRootWidget();
         root.theme = theme;
         root.spacing = 0;
+        root.init();
 
         for (int i = 0; i < values.length; i++) {
             WDropdownValue widget = createValueWidget();
@@ -66,7 +69,9 @@ public abstract class WDropdown<T> extends WPressable {
             maxValueWidth = Math.max(maxValueWidth, valueWidth);
         }
 
+        root.maxHeight = Double.MAX_VALUE;
         root.calculateSize();
+        contentHeight = root.height;
 
         width = pad + maxValueWidth + pad + theme.textHeight() + pad;
         height = pad + theme.textHeight() + pad;
@@ -78,17 +83,26 @@ public abstract class WDropdown<T> extends WPressable {
     protected void onCalculateWidgetPositions() {
         super.onCalculateWidgetPositions();
 
+        PopupBounds bounds = PopupBounds.fit(y, height, contentHeight, screenHeight(), theme.scale(4));
+        root.maxHeight = bounds.height();
+        root.calculateSize();
+        root.width = width;
         root.x = x;
-        root.y = y + height;
-
+        root.y = bounds.y();
         root.calculateWidgetPositions();
     }
 
     @Override
     protected void onPressed(int button) {
-        expanded = !expanded;
-        root.setFocused(expanded);
-        setFocused(expanded);
+        if (button == MOUSE_BUTTON_LEFT) setExpanded(!expanded);
+    }
+
+    protected double screenHeight() { return getWindowHeight(); }
+
+    private void setExpanded(boolean value) {
+        expanded = value;
+        setFocused(value);
+        if (!value) root.setFocused(false);
     }
 
     public T get() {
@@ -104,6 +118,8 @@ public abstract class WDropdown<T> extends WPressable {
         super.move(deltaX, deltaY);
 
         root.move(deltaX, deltaY);
+        WView view = getView();
+        if (expanded && view != null && !view.isWidgetInView(this)) setExpanded(false);
     }
 
     @Override
@@ -117,8 +133,8 @@ public abstract class WDropdown<T> extends WPressable {
         boolean rootInView = view == null || view.isWidgetInView(this);
 
         if (!render && animProgress > 0 && rootInView) {
-            double dropdownY = y + height;
-            double scissorHeight = Math.min(root.height * animProgress, getWindowHeight() - dropdownY);
+            double dropdownY = root.y;
+            double scissorHeight = root.height * animProgress;
 
             renderer.absolutePost(() -> {
                 renderer.scissorStart(x, dropdownY, width, scissorHeight);
@@ -137,7 +153,7 @@ public abstract class WDropdown<T> extends WPressable {
     @Override
     public boolean onMouseClicked(MouseButtonEvent click, boolean doubled) {
         boolean used = false;
-        if (!mouseOver && !root.mouseOver) expanded = false;
+        if (expanded && !mouseOver && !root.mouseOver) setExpanded(false);
 
         if (super.onMouseClicked(click, doubled)) used = true;
         if (expanded && root.mouseClicked(click, doubled)) used = true;
@@ -172,15 +188,29 @@ public abstract class WDropdown<T> extends WPressable {
 
     @Override
     public boolean onKeyPressed(KeyEvent input) {
+        if (expanded && input.key() == KEY_ESCAPE) {
+            setExpanded(false);
+            return true;
+        }
+        if (expanded && values.length > 0 && (input.key() == KEY_UP || input.key() == KEY_DOWN)) {
+            int index = java.util.Arrays.asList(values).indexOf(value);
+            int next = Math.floorMod(index + (input.key() == KEY_DOWN ? 1 : -1), values.length);
+            set(values[next]);
+            if (action != null) action.run();
+            return true;
+        }
+        if (expanded && (input.key() == KEY_RETURN || input.key() == KEY_NUMPADENTER)) {
+            setExpanded(false);
+            return true;
+        }
         if (super.onKeyPressed(input)) return true;
-
         return expanded && root.keyPressed(input);
     }
 
     @Override
     public boolean onKeyRepeated(KeyEvent input) {
+        if (expanded && (input.key() == KEY_UP || input.key() == KEY_DOWN)) return onKeyPressed(input);
         if (super.onKeyRepeated(input)) return true;
-
         return expanded && root.keyRepeated(input);
     }
 
@@ -193,7 +223,7 @@ public abstract class WDropdown<T> extends WPressable {
 
     // Widgets
 
-    protected abstract static class WDropdownRoot extends WVerticalList implements WRoot {
+    protected abstract static class WDropdownRoot extends WView implements WRoot {
         @Override
         public void invalidate() {
         }
@@ -207,7 +237,7 @@ public abstract class WDropdown<T> extends WPressable {
             boolean isNew = !WDropdown.this.value.equals(value);
 
             WDropdown.this.value = value;
-            expanded = false;
+            setExpanded(false);
 
             if (isNew && WDropdown.this.action != null) WDropdown.this.action.run();
         }

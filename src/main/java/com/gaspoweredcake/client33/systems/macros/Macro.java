@@ -46,6 +46,9 @@ public class Macro implements ISerializable<Macro> {
         .build()
     );
 
+    public Setting<net.minecraft.world.item.Item> hotbarItem = sgGeneral.add(new ItemSetting.Builder()
+        .name("hotbar-item").description("Select this item from your hotbar before running messages; Air leaves your slot unchanged.").defaultValue(net.minecraft.world.item.Items.AIR).build());
+
     private final List<Script> scripts = new ArrayList<>(1);
     private boolean dirty;
 
@@ -62,6 +65,12 @@ public class Macro implements ISerializable<Macro> {
     }
 
     public boolean onAction() {
+        if (mc.player == null) return false;
+        if (hotbarItem.get() != net.minecraft.world.item.Items.AIR) {
+            var found = com.gaspoweredcake.client33.utils.player.InvUtils.find(stack -> stack.is(hotbarItem.get()), 0, 8);
+            if (!found.found()) { ChatUtils.warning("Macro item is not in your hotbar."); return false; }
+            com.gaspoweredcake.client33.utils.player.InvUtils.swap(found.slot(), false);
+        }
         if (dirty) {
             scripts.clear();
 

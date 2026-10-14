@@ -11,6 +11,7 @@ public class DoAttackEvent extends Cancellable {
     private static final DoAttackEvent INSTANCE = new DoAttackEvent();
 
     public static DoAttackEvent get() {
+        INSTANCE.setCancelled(false);
         return INSTANCE;
     }
 }

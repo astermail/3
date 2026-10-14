@@ -24,8 +24,8 @@ public class WClient33ConfirmedButton extends WConfirmedButton implements Client
         double pad = pad();
 
         Color outline = theme.outlineColor.get(pressed, mouseOver);
-        Color fg = pressedOnce ? theme.backgroundColor.get(pressed, mouseOver) : theme.textColor.get();
-        Color bg = pressedOnce ? theme.textColor.get() : theme.backgroundColor.get(pressed, mouseOver);
+        Color fg = pressedOnce ? theme.surface(pressed, mouseOver) : theme.textColor();
+        Color bg = pressedOnce ? theme.textColor() : theme.surface(pressed, mouseOver);
 
         renderBackground(renderer, this, outline, bg);
 

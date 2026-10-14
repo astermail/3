@@ -20,6 +20,7 @@ public abstract class WView extends WVerticalList {
 
     protected boolean canScroll;
     private double actualHeight;
+    private double defaultMaxHeight;
 
     private double scroll;
     private double targetScroll;
@@ -29,11 +30,14 @@ public abstract class WView extends WVerticalList {
 
     @Override
     public void init() {
-        maxHeight = Utils.getWindowHeight() - theme.scale(128);
+        maxHeight = defaultMaxHeight = Math.max(theme.textHeight(), Utils.getWindowHeight() - theme.scale(128));
     }
 
     @Override
     protected void onCalculateSize() {
+        if (maxHeight == defaultMaxHeight) {
+            maxHeight = defaultMaxHeight = Math.max(theme.textHeight(), Utils.getWindowHeight() - theme.scale(128));
+        }
         boolean couldScroll = canScroll;
         canScroll = false;
         widthRemove = 0;
@@ -42,7 +46,7 @@ public abstract class WView extends WVerticalList {
 
         if (height > maxHeight) {
             actualHeight = height;
-            height = maxHeight;
+            height = Math.max(0, maxHeight);
             canScroll = true;
 
             if (hasScrollBar) {
@@ -108,7 +112,7 @@ public abstract class WView extends WVerticalList {
 
             //scroll += Math.round(theme.scale(mouseDelta + mouseDelta * ((height / actualHeight) * 0.7627725)));
             //scroll += Math.round(theme.scale(mouseDelta * (1 / (height / actualHeight))));
-            scroll += Math.round(mouseDelta * ((actualHeight - handleHeight() / 2) / height));
+            scroll += mouseDelta * (actualHeight - height) / Math.max(1, height - handleHeight());
             scroll = Mth.clamp(scroll, 0, actualHeight - height);
 
             targetScroll = scroll;
@@ -120,17 +124,19 @@ public abstract class WView extends WVerticalList {
 
     @Override
     public boolean onMouseScrolled(double amount) {
-        if (!scrollOnlyWhenMouseOver || mouseOver) {
-            double max = actualHeight - height;
+        if (!canScroll || (scrollOnlyWhenMouseOver && !mouseOver)) return false;
+        double previous = targetScroll;
+        targetScroll = Mth.clamp(targetScroll - Math.round(theme.scale(amount * 40)), 0, Math.max(0, actualHeight - height));
+        // Landing exactly at an edge still consumes the movement; only a subsequent wheel event bubbles.
+        return targetScroll != previous;
+    }
 
-            targetScroll -= Math.round(theme.scale(amount * 40));
-            targetScroll = Mth.clamp(targetScroll, 0, max);
+    public double getContentHeight() { return actualHeight; }
 
-            // Only consume the event if the view actually scrolled, otherwise propagate to parent.
-            return targetScroll > 0 && targetScroll < max;
-        }
-
-        return false;
+    public void resetScroll() {
+        scroll = targetScroll = 0;
+        moveAfterPositionWidgets = false;
+        invalidate();
     }
 
     @Override
@@ -175,11 +181,11 @@ public abstract class WView extends WVerticalList {
     }
 
     protected double handleWidth() {
-        return theme.scale(6);
+        return theme.scale(10);
     }
 
     protected double handleHeight() {
-        return height / actualHeight * height;
+        return Math.min(height, Math.max(theme.scale(24), height / Math.max(1, actualHeight) * height));
     }
 
     protected double handleX() {

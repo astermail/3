@@ -60,8 +60,8 @@ public class InventoryTweaks extends Module {
 
     private final Setting<Boolean> xCarry = sgGeneral.add(new BoolSetting.Builder()
         .name("xcarry")
-        .description("Allows you to store four extra item stacks in your crafting grid.")
-        .defaultValue(true)
+        .description("Allows you to store four extra item stacks in your crafting grid. Many servers reject this behavior.")
+        .defaultValue(false)
         .onChanged(v -> {
             if (v || !Utils.canUpdate()) return;
             mc.player.connection.send(new ServerboundContainerClosePacket(mc.player.inventoryMenu.containerId));
@@ -273,7 +273,7 @@ public class InventoryTweaks extends Module {
     private boolean invOpened;
 
     public InventoryTweaks() {
-        super(Categories.Misc, "inventory-tweaks", "Various inventory related utilities.");
+        super(Categories.Misc, "inventory-tweaks", "Various inventory related utilities.", "InventoryManager");
     }
 
     @Override

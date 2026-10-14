@@ -14,7 +14,7 @@ import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 
 import java.util.ArrayList;
-import java.util.ConcurrentModificationException;
+import java.util.function.Predicate;
 import java.util.List;
 
 import static com.gaspoweredcake.client33.Client33.mc;
@@ -124,7 +124,7 @@ public abstract class WContainer extends WWidget {
         for (Cell<?> cell : cells) {
             WWidget widget = cell.widget();
 
-            if (widget.y > windowHeight) break;
+            if (widget.y > windowHeight) continue;
             if (widget.y + widget.height <= 0) continue;
 
             if (shouldRenderWidget(widget, view)) renderWidget(widget, renderer, mouseX, mouseY, delta);
@@ -154,88 +154,55 @@ public abstract class WContainer extends WWidget {
         return true;
     }
 
+    // Focused descendants include open menus and captured drags. Route them before underlying controls.
+    private boolean dispatchEvent(Predicate<WWidget> event) {
+        List<WWidget> widgets = cells.stream().<WWidget>map(Cell::widget).sorted((left, right) ->
+            Boolean.compare(right.isFocused(), left.isFocused())).toList();
+        for (WWidget widget : widgets) {
+            if (widget.visible && propagateEvents(widget) && event.test(widget)) return true;
+        }
+        return false;
+    }
+
     @Override
     public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
-        try {
-            for (Cell<?> cell : cells) {
-                if (propagateEvents(cell.widget()) && cell.widget().mouseClicked(click, doubled)) return true;
-            }
-        } catch (ConcurrentModificationException _) {
-        }
-
-        return super.mouseClicked(click, doubled);
+        return dispatchEvent(widget -> widget.mouseClicked(click, doubled)) || super.mouseClicked(click, doubled);
     }
 
     @Override
     public boolean mouseReleased(MouseButtonEvent click) {
-        try {
-            for (Cell<?> cell : cells) {
-                if (propagateEvents(cell.widget()) && cell.widget().mouseReleased(click)) return true;
-            }
-        } catch (ConcurrentModificationException _) {
-        }
-
-        return super.mouseReleased(click);
+        return dispatchEvent(widget -> widget.mouseReleased(click)) || super.mouseReleased(click);
     }
 
     @Override
     public void mouseMoved(double mouseX, double mouseY, double lastMouseX, double lastMouseY) {
-        // Nested views must see the current hover state when routing this movement.
         super.mouseMoved(mouseX, mouseY, lastMouseX, lastMouseY);
-        try {
-            for (Cell<?> cell : cells) {
-                if (propagateEvents(cell.widget())) cell.widget().mouseMoved(mouseX, mouseY, lastMouseX, lastMouseY);
+        for (Cell<?> cell : List.copyOf(cells)) {
+            WWidget widget = cell.widget();
+            // Also clear stale hover when the pointer leaves a view or a row is clipped.
+            if (widget.visible && (propagateEvents(widget) || widget.mouseOver)) {
+                widget.mouseMoved(mouseX, mouseY, lastMouseX, lastMouseY);
             }
-        } catch (ConcurrentModificationException _) {
         }
-
     }
 
     @Override
     public boolean mouseScrolled(double amount) {
-        try {
-            for (Cell<?> cell : cells) {
-                if (propagateEvents(cell.widget()) && cell.widget().mouseScrolled(amount)) return true;
-            }
-        } catch (ConcurrentModificationException _) {
-        }
-
-        return super.mouseScrolled(amount);
+        return dispatchEvent(widget -> widget.mouseScrolled(amount)) || super.mouseScrolled(amount);
     }
 
     @Override
     public boolean keyPressed(KeyEvent input) {
-        try {
-            for (Cell<?> cell : cells) {
-                if (propagateEvents(cell.widget()) && cell.widget().keyPressed(input)) return true;
-            }
-        } catch (ConcurrentModificationException _) {
-        }
-
-        return onKeyPressed(input);
+        return dispatchEvent(widget -> widget.keyPressed(input)) || onKeyPressed(input);
     }
 
     @Override
     public boolean keyRepeated(KeyEvent input) {
-        try {
-            for (Cell<?> cell : cells) {
-                if (propagateEvents(cell.widget()) && cell.widget().keyRepeated(input)) return true;
-            }
-        } catch (ConcurrentModificationException _) {
-        }
-
-        return onKeyRepeated(input);
+        return dispatchEvent(widget -> widget.keyRepeated(input)) || onKeyRepeated(input);
     }
 
     @Override
     public boolean charTyped(CharacterEvent input) {
-        try {
-            for (Cell<?> cell : cells) {
-                if (propagateEvents(cell.widget()) && cell.widget().charTyped(input)) return true;
-            }
-        } catch (ConcurrentModificationException _) {
-        }
-
-        return super.charTyped(input);
+        return dispatchEvent(widget -> widget.charTyped(input)) || super.charTyped(input);
     }
 }

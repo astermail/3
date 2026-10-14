@@ -12,9 +12,6 @@ import com.gaspoweredcake.client33.gui.widgets.containers.WWindow;
 import com.gaspoweredcake.client33.utils.render.color.Color;
 
 public class WClient33Window extends WWindow implements Client33Widget {
-    private static final Color HEADER_START = new Color(190, 34, 49, 255);
-    private static final Color HEADER_END = new Color(116, 24, 40, 255);
-
     public WClient33Window(WWidget icon, String title) {
         super(icon, title);
     }
@@ -26,17 +23,9 @@ public class WClient33Window extends WWindow implements Client33Widget {
 
     @Override
     protected void onRender(GuiRenderer renderer, double mouseX, double mouseY, double delta) {
-        if (expanded || animProgress > 0) {
-            renderer.quad(x, y + header.height, width, height - header.height, theme().backgroundColor.get());
-
-            double border = theme.scale(1);
-            double bodyHeight = height - header.height;
-            Color outline = theme().outlineColor.get();
-            renderer.quad(x, y + header.height, border, bodyHeight, outline);
-            renderer.quad(x + width - border, y + header.height, border, bodyHeight, outline);
-            renderer.quad(x, y + height - border, width, border, outline);
-            renderer.quad(x, y + height - border, theme.scale(12), border, theme().accentColor.get());
-        }
+        double line = theme.scale(1), radius = theme.scale(14);
+        renderer.roundedQuad(x, y, width, height, radius, theme().outline(false, false));
+        renderer.roundedQuad(x + line, y + line, width - line * 2, height - line * 2, radius - line, theme().surface());
     }
 
     private class WClient33Header extends WHeader {
@@ -46,12 +35,9 @@ public class WClient33Window extends WWindow implements Client33Widget {
 
         @Override
         protected void onRender(GuiRenderer renderer, double mouseX, double mouseY, double delta) {
-            double line = theme.scale(1);
-            renderer.quad(x, y, width, height, HEADER_START, HEADER_END);
-            renderer.quad(x, y, width, line, theme().outlineColor.get());
-            renderer.quad(x, y, line * 3, height, theme().accentColor.get());
-            renderer.quad(x, y + height - line, width, line, theme().outlineColor.get());
-            renderer.quad(x + width - theme.scale(12), y, theme.scale(12), line, theme().minusColor.get());
+            double radius = theme.scale(12);
+            renderer.roundedQuad(x + theme.scale(3), y + theme.scale(3), width - theme.scale(6), height - theme.scale(6), radius,
+                theme().euphoric() ? new Color(29, 32, 49) : theme().moduleSurface());
         }
     }
 }

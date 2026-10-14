@@ -115,10 +115,10 @@ public class WClient33TextBox extends WTextBox implements Client33Widget {
 
         // Text content
         if (!text.isEmpty()) {
-            this.renderer.render(renderer, x + pad - overflowWidth, y + pad, text, theme.textColor.get());
+            this.renderer.render(renderer, x + pad - overflowWidth, y + pad, text, theme.textColor());
         }
         else if (placeholder != null) {
-            this.renderer.render(renderer, x + pad - overflowWidth, y + pad, placeholder, theme.placeholderColor.get());
+            this.renderer.render(renderer, x + pad - overflowWidth, y + pad, placeholder, theme.placeholderColor());
         }
 
         // Text highlighting
@@ -135,7 +135,7 @@ public class WClient33TextBox extends WTextBox implements Client33Widget {
 
         if ((focused && cursorVisible) || animProgress > 0) {
             renderer.setAlpha(animProgress);
-            renderer.quad(x + pad + getTextWidth(cursor) - overflowWidth, y + pad, theme.scale(1), theme.textHeight(), theme.textColor.get());
+            renderer.quad(x + pad + getTextWidth(cursor) - overflowWidth, y + pad, theme.scale(1), theme.textHeight(), theme.textColor());
             renderer.setAlpha(1);
         }
 

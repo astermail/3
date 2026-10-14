@@ -101,10 +101,12 @@ public class Xray extends Module {
 
     @Override
     public WWidget getWidget(GuiTheme theme) {
+        var list = theme.verticalList();
+        list.add(theme.label("Xray can only show blocks the server sends. Ore Memory keeps dated observations of revealed blocks; it cannot recover hidden blocks.", 320));
+        list.add(theme.button("Configure Ore Memory")).expandX().widget().action = () -> mc.gui.setScreen(theme.moduleScreen(Modules.get().get(OreMemory.class)));
         if (MixinPlugin.isIrisPresent && IrisApi.getInstance().isShaderPackInUse())
-            return theme.label("Warning: Due to shaders in use, opacity is overridden to 0.");
-
-        return null;
+            list.add(theme.label("Shaders override Xray opacity to 0.", 320));
+        return list;
     }
 
     @EventHandler

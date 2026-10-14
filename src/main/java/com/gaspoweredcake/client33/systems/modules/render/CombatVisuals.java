@@ -24,6 +24,7 @@ import java.util.ArrayDeque;
 public class CombatVisuals extends Module {
     private final SettingGroup sgTarget = settings.createGroup("Target choreography");
     private final SettingGroup sgEffects = settings.createGroup("Attack & motion");
+    private final SettingGroup sgAtmosphere = settings.createGroup("Euphoric atmosphere");
     private final SettingGroup sgCamera = settings.createGroup("Camera & performance");
     public final Setting<Boolean> targetOrbit = sgTarget.add(new BoolSetting.Builder().name("target-orbit").description("Rotating broken rings around KillAura's selected target.").defaultValue(true).build());
     public final Setting<Boolean> scanBand = sgTarget.add(new BoolSetting.Builder().name("scan-band").description("A luminous band sweeps up and down the target.").defaultValue(true).build());
@@ -40,6 +41,10 @@ public class CombatVisuals extends Module {
     public final Setting<Boolean> throughWalls = sgCamera.add(new BoolSetting.Builder().name("through-walls").description("Show combat effects through terrain.").defaultValue(false).build());
     public final Setting<Integer> detail = sgCamera.add(new IntSetting.Builder().name("detail").description("Segments per ring; lower values reduce geometry.").defaultValue(48).range(16, 96).sliderRange(16, 96).build());
     public final Setting<Integer> maxBursts = sgCamera.add(new IntSetting.Builder().name("max-bursts").description("Maximum simultaneous attack effects.").defaultValue(12).range(1, 32).sliderRange(1, 32).build());
+
+    public final Setting<Boolean> euphoricAura = sgAtmosphere.add(new BoolSetting.Builder().name("euphoric-aura").description("Layered spectral ribbons and orbit halos around the combat target.").defaultValue(true).build());
+    public final Setting<Double> intensity = sgAtmosphere.add(new DoubleSetting.Builder().name("intensity").description("Opacity of spectral ribbons and halos; zero removes the atmosphere.").defaultValue(0.65).range(0, 1).build());
+    public final Setting<Boolean> manualTarget = sgAtmosphere.add(new BoolSetting.Builder().name("manual-target").description("Show target effects on your last manually attacked player too.").defaultValue(true).build());
 
     private final ArrayDeque<Burst> bursts = new ArrayDeque<>();
     private final ArrayDeque<Vec3> trail = new ArrayDeque<>();
@@ -117,7 +122,7 @@ public class CombatVisuals extends Module {
         Renderer3D renderer = throughWalls.get() ? event.renderer : event.depthRenderer;
         double time = clock + event.tickDelta * 0.05;
         KillAura aura = Modules.get().get(KillAura.class);
-        Entity target = aura.isActive() ? aura.getTarget() : null;
+        Entity target = aura.isActive() ? aura.getTarget() : manualTarget.get() ? com.gaspoweredcake.client33.utils.combat.DuelTelemetry.target() : null;
         if (target != null && target.isAlive() && !target.isRemoved()) renderTarget(renderer, target, event.tickDelta, time);
         if (attackBursts.get()) for (Burst burst : bursts) {
             double p = VisualGeometry.progress(time - burst.born, burst.duration);
@@ -152,6 +157,7 @@ public class CombatVisuals extends Module {
         double z = Mth.lerp(delta, target.zOld, target.getZ());
         double radius = target.getBbWidth() * 0.7 + 0.25;
         double phase = time * speed.get() * 2;
+        if (euphoricAura.get() && intensity.get() > 0) renderAtmosphere(renderer, x, y, z, radius, target.getBbHeight(), phase);
         if (targetOrbit.get()) for (int i = 0; i < 3; i++) {
             VisualGeometry.ring(renderer, x, y + 0.05, z, radius, phase + i * Math.PI * 2 / 3, 1.55, detail.get() / 3, primary.get());
             VisualGeometry.ring(renderer, x, y + 0.09, z, radius + 0.18, -phase + i * Math.PI * 2 / 3, 0.9, detail.get() / 3, secondary.get());
@@ -171,4 +177,22 @@ public class CombatVisuals extends Module {
             renderer.line(cx, cy - 0.15, cz, cx - 0.08, cy, cz, secondary.get());
         }
     }
+    private void renderAtmosphere(Renderer3D renderer, double x, double y, double z, double radius, double height, double phase) {
+        int segments = detail.get();
+        for (int band = 0; band < 2; band++) for (int i = 0; i < segments; i++) {
+            double a = i * Math.PI * 2 / segments + phase * (band == 0 ? 0.6 : -0.4);
+            double b = (i + 1) * Math.PI * 2 / segments + phase * (band == 0 ? 0.6 : -0.4);
+            double r = radius + 0.12 + band * 0.17;
+            double ya = y + height * (0.45 + 0.25 * Math.sin(a * 2 + phase + band * Math.PI));
+            double yb = y + height * (0.45 + 0.25 * Math.sin(b * 2 + phase + band * Math.PI));
+            Color color = com.gaspoweredcake.client33.utils.render.EuphoricPalette.sample(i / (double) segments + phase * 0.015, (int) (160 * intensity.get()));
+            Color fade = new Color(color).a(0);
+            double ax = x + Math.cos(a) * r, az = z + Math.sin(a) * r;
+            double bx = x + Math.cos(b) * r, bz = z + Math.sin(b) * r;
+            renderer.line(ax, ya, az, bx, yb, bz, color);
+            renderer.quad(ax, ya, az, bx, yb, bz, bx, yb - 0.22, bz, ax, ya - 0.22, az, color, color, fade, fade);
+            if (band == 0) renderer.line(ax, y + 0.03, az, bx, y + 0.03, bz, new Color(color).a(color.a / 2));
+        }
+    }
+
 }

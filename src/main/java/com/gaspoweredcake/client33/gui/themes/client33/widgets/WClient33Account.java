@@ -23,6 +23,6 @@ public class WClient33Account extends WAccount implements Client33Widget {
 
     @Override
     protected Color accountTypeColor() {
-        return theme().textSecondaryColor.get();
+        return theme().textSecondaryColor();
     }
 }

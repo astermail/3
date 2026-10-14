@@ -34,6 +34,8 @@ public abstract class FogRendererMixin {
     private boolean modifyFogEnabled(boolean original) {
         if (Modules.get() == null) return original;
 
-        return original && !Modules.get().get(NoRender.class).noFog();
+        return original && !Modules.get().get(NoRender.class).noFog()
+            && !(Modules.get().isActive(com.gaspoweredcake.client33.systems.modules.render.ClearWater.class)
+                && com.gaspoweredcake.client33.Client33.mc.gameRenderer.mainCamera().getFluidInCamera() == net.minecraft.world.level.material.FogType.WATER);
     }
 }

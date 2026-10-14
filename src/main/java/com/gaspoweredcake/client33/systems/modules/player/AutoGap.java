@@ -8,6 +8,8 @@ package com.gaspoweredcake.client33.systems.modules.player;
 import it.unimi.dsi.fastutil.objects.ReferenceArrayList;
 import com.gaspoweredcake.client33.events.entity.player.ItemUseCrosshairTargetEvent;
 import com.gaspoweredcake.client33.events.world.TickEvent;
+import com.gaspoweredcake.client33.events.game.GameLeftEvent;
+import com.gaspoweredcake.client33.utils.misc.input.Input;
 import com.gaspoweredcake.client33.pathing.PathManagers;
 import com.gaspoweredcake.client33.settings.BoolSetting;
 import com.gaspoweredcake.client33.settings.IntSetting;
@@ -36,7 +38,7 @@ import java.util.Map;
 
 public class AutoGap extends Module {
     @SuppressWarnings("unchecked")
-    private static final Class<? extends Module>[] AURAS = new Class[]{KillAura.class, CrystalAura.class, AnchorAura.class, BedAura.class};
+    private static final Class<? extends Module>[] AURAS = new Class[]{CrystalAura.class, AnchorAura.class, BedAura.class};
 
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
     private final SettingGroup sgPotions = settings.createGroup("Potions");
@@ -149,7 +151,20 @@ public class AutoGap extends Module {
     }
 
     @EventHandler
+    private void onGameLeft(GameLeftEvent event) {
+        if (eating) stopEating();
+    }
+
+    @EventHandler
     private void onTick(TickEvent.Pre event) {
+        if (mc.player == null || mc.gameMode == null || !mc.player.isAlive() || mc.player.isSpectator() || mc.gui.screen() != null) {
+            if (eating) stopEating();
+            return;
+        }
+        if (eating && mc.player.getInventory().getSelectedSlot() != slot) {
+            stopEating();
+            return;
+        }
         if (eating) {
             // If we are eating check if we should still be still eating
             if (shouldEat()) {
@@ -178,7 +193,7 @@ public class AutoGap extends Module {
             }
         } else {
             // If we are not eating check if we should start eating
-            if (shouldEat()) {
+            if (!mc.player.isUsingItem() && !com.gaspoweredcake.client33.utils.player.PotionUse.anyBusy() && shouldEat()) {
                 // Try to find a valid slot
                 slot = findSlot();
 
@@ -198,12 +213,12 @@ public class AutoGap extends Module {
         // AutoEat may have restored a borrowed hotbar slot during the handoff.
         slot = findSlot();
         if (slot == -1) return;
-        prevSlot = mc.player.getInventory().getSelectedSlot();
-        eat();
+        eating = true;
 
         // Pause auras
         wasAura.clear();
         if (pauseAuras.get()) {
+            Modules.get().get(KillAura.class).pauseForEating();
             for (Class<? extends Module> klass : AURAS) {
                 Module module = Modules.get().get(klass);
 
@@ -213,6 +228,9 @@ public class AutoGap extends Module {
                 }
             }
         }
+
+        prevSlot = mc.player.getInventory().getSelectedSlot();
+        eat();
 
         // Pause baritone
         wasBaritone = false;
@@ -231,24 +249,18 @@ public class AutoGap extends Module {
     }
 
     private void stopEating() {
-        changeSlot(prevSlot);
-        setPressed(false);
-
+        if (mc.player != null) {
+            boolean ownsSlot = mc.player.getInventory().getSelectedSlot() == slot;
+            if (ownsSlot && mc.gameMode != null && mc.player.isUsingItem()
+                && mc.player.getUsedItemHand() == net.minecraft.world.InteractionHand.MAIN_HAND) mc.gameMode.releaseUsingItem(mc.player);
+            if (ownsSlot) InvUtils.swap(prevSlot, false);
+        }
+        setPressed(Input.isPressed(mc.options.keyUse));
         eating = false;
-
-        // Resume auras
-        if (pauseAuras.get()) {
-            for (Class<? extends Module> klass : AURAS) {
-                if (wasAura.contains(klass)) {
-                    Modules.get().get(klass).enable();
-                }
-            }
-        }
-
-        // Resume baritone
-        if (pauseBaritone.get() && wasBaritone) {
-            PathManagers.get().resume();
-        }
+        for (Class<? extends Module> klass : wasAura) Modules.get().get(klass).enable();
+        wasAura.clear();
+        if (wasBaritone) PathManagers.get().resume();
+        wasBaritone = false;
     }
 
     private void setPressed(boolean pressed) {
@@ -258,6 +270,10 @@ public class AutoGap extends Module {
     private void changeSlot(int slot) {
         InvUtils.swap(slot, false);
         this.slot = slot;
+    }
+
+    public boolean pausesKillAura() {
+        return isActive() && eating && pauseAuras.get();
     }
 
     private boolean shouldEat() {

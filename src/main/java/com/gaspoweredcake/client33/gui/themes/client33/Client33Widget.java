@@ -17,21 +17,13 @@ public interface Client33Widget extends BaseWidget {
 
     default void renderBackground(GuiRenderer renderer, WWidget widget, Color outlineColor, Color backgroundColor) {
         Client33GuiTheme theme = theme();
-        double s = theme.scale(1);
-        double corner = theme.scale(5);
-
-        renderer.quad(widget.x, widget.y, widget.width, widget.height, backgroundColor);
-
-        renderer.quad(widget.x, widget.y, widget.width, s, outlineColor);
-        renderer.quad(widget.x, widget.y + widget.height - s, widget.width, s, outlineColor);
-        renderer.quad(widget.x, widget.y + s, s, widget.height - s * 2, outlineColor);
-        renderer.quad(widget.x + widget.width - s, widget.y + s, s, widget.height - s * 2, outlineColor);
-        renderer.quad(widget.x, widget.y, corner, s, theme.accentColor.get());
-        renderer.quad(widget.x, widget.y, s, corner, theme.accentColor.get());
+        double line = theme.scale(1), radius = theme.scale(7);
+        renderer.roundedQuad(widget.x, widget.y, widget.width, widget.height, radius, outlineColor);
+        renderer.roundedQuad(widget.x + line, widget.y + line, widget.width - line * 2, widget.height - line * 2, radius - line, backgroundColor);
     }
 
     default void renderBackground(GuiRenderer renderer, WWidget widget, boolean pressed, boolean mouseOver) {
         Client33GuiTheme theme = theme();
-        renderBackground(renderer, widget, theme.outlineColor.get(pressed, mouseOver), theme.backgroundColor.get(pressed, mouseOver));
+        renderBackground(renderer, widget, theme.outline(pressed, mouseOver), theme.surface(pressed, mouseOver));
     }
 }
